@@ -277,4 +277,4 @@ elif menu == "🔒 Quản trị (Admin Panel)":
         st.dataframe(st.session_state.data_store, use_container_width=True, hide_index=True)
         
     elif admin_password:
-        st.error("❌ Mật khẩu không chính xác! (Gợi ý mật khẩu demo: admin123
+        st.error("❌ Mật khẩu không chính xác! (Gợi ý mật khẩu demo: admin123)
