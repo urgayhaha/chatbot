@@ -1,56 +1,57 @@
 import streamlit as st
-from openai import OpenAI
+import pandas as pd
 
-# Show title and description.
-st.title("💬 Chatbot")
-st.write(
-    "This is a simple chatbot that uses OpenAI's GPT-3.5 model to generate responses. "
-    "To use this app, you need to provide an OpenAI API key, which you can get [here](https://platform.openai.com/account/api-keys). "
-    "You can also learn how to build this app step by step by [following our tutorial](https://docs.streamlit.io/develop/tutorials/llms/build-conversational-apps)."
+# Cấu hình trang
+st.set_page_config(
+    page_title="Wikifacts Beta",
+    page_icon="🌐",
+    layout="wide"
 )
 
-# Ask user for their OpenAI API key via `st.text_input`.
-# Alternatively, you can store the API key in `./.streamlit/secrets.toml` and access it
-# via `st.secrets`, see https://docs.streamlit.io/develop/concepts/connections/secrets-management
-openai_api_key = st.text_input("OpenAI API Key", type="password")
-if not openai_api_key:
-    st.info("Please add your OpenAI API key to continue.", icon="🗝️")
+# Giao diện chính
+st.title("🌐 Wikifacts — Nền Tảng Dữ Liệu Thông Minh")
+st.markdown("Bản Beta trình diễn năng lực tổng hợp, cấu trúc hóa và tra cứu dữ liệu web thời gian thực phục vụ gọi vốn.")
+
+# Thanh tìm kiếm dữ liệu
+query = st.text_input(
+    "🔍 Tra cứu kho tri thức & dữ liệu internet:",
+    placeholder="Nhập từ khóa (ví dụ: công nghệ, năng lượng, AI, hạ tầng...)"
+)
+
+# Dữ liệu mẫu (Mock Database) thể hiện năng lực xử lý
+data = {
+    "Tiêu đề dữ liệu": [
+        "Hệ thống định tuyến dữ liệu phân tán", 
+        "Thuật toán tối ưu hóa tìm kiếm web", 
+        "Nền tảng tri thức tự động hóa", 
+        "Bảo mật và xác thực hạ tầng đám mây"
+    ],
+    "Danh mục": ["Infrastructure", "Search Engine", "AI Automation", "Security"],
+    "Trạng thái": ["Hoạt động", "Đang thử nghiệm", "Sẵn sàng scale", "Bảo mật cao"],
+    "Độ chính xác": ["99.8%", "95.4%", "98.1%", "99.9%"]
+}
+df = pd.DataFrame(data)
+
+# Hiển thị kết quả tương tác
+if query:
+    st.success(f"Đã trích xuất dữ liệu thành công cho từ khóa: **{query}**")
+    filtered_df = df[
+        df['Tiêu đề dữ liệu'].str.contains(query, case=False, na=False) | 
+        df['Danh mục'].str.contains(query, case=False, na=False)
+    ]
+    if not filtered_df.empty:
+        st.dataframe(filtered_df, use_container_width=True)
+    else:
+        st.info("Không tìm thấy khớp chính xác. Hiển thị toàn bộ kho dữ liệu liên quan:")
+        st.dataframe(df, use_container_width=True)
 else:
+    st.subheader("📊 Kho dữ liệu hệ thống (Live Preview)")
+    st.dataframe(df, use_container_width=True)
 
-    # Create an OpenAI client.
-    client = OpenAI(api_key=openai_api_key)
-
-    # Create a session state variable to store the chat messages. This ensures that the
-    # messages persist across reruns.
-    if "messages" not in st.session_state:
-        st.session_state.messages = []
-
-    # Display the existing chat messages via `st.chat_message`.
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # Create a chat input field to allow the user to enter a message. This will display
-    # automatically at the bottom of the page.
-    if prompt := st.chat_input("What is up?"):
-
-        # Store and display the current prompt.
-        st.session_state.messages.append({"role": "user", "content": prompt})
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # Generate a response using the OpenAI API.
-        stream = client.chat.completions.create(
-            model="gpt-3.5-turbo",
-            messages=[
-                {"role": m["role"], "content": m["content"]}
-                for m in st.session_state.messages
-            ],
-            stream=True,
-        )
-
-        # Stream the response to the chat using `st.write_stream`, then store it in 
-        # session state.
-        with st.chat_message("assistant"):
-            response = st.write_stream(stream)
-        st.session_state.messages.append({"role": "assistant", "content": response})
+# Sidebar quản trị phía bên trái
+st.sidebar.header("⚙️ Thông số hệ thống")
+st.sidebar.info(
+    "**Môi trường:** Streamlit Cloud\n\n"
+    "**Trạng thái:** Live Beta (v1.0)\n\n"
+    "**Mục tiêu:** Gọi vốn Pre-Seed"
+)
