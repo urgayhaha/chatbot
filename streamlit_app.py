@@ -1,57 +1,158 @@
 import streamlit as st
 import pandas as pd
+import time
 
-# Cấu hình trang
+# --- CẤU HÌNH TRANG ---
 st.set_page_config(
-    page_title="Wikifacts Beta",
+    page_title="Wikifacts Beta | Nền Tảng Dữ Liệu Web",
     page_icon="🌐",
-    layout="wide"
+    layout="wide",
+    initial_sidebar_state="expanded"
 )
 
-# Giao diện chính
-st.title("🌐 Wikifacts — Nền Tảng Dữ Liệu Thông Minh")
-st.markdown("Bản Beta trình diễn năng lực tổng hợp, cấu trúc hóa và tra cứu dữ liệu web thời gian thực phục vụ gọi vốn.")
+# --- TÙY CHỈNH CSS NHẸ NHÀNG ĐỂ GIAO DIỆN TINH TẾ HƠN ---
+st.markdown("""
+    <style>
+    .main {
+        background-color: #fafbfc;
+    }
+    .stMetric {
+        background-color: #ffffff;
+        padding: 15px;
+        border-radius: 8px;
+        border: 1px solid #e1e4e8;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# Thanh tìm kiếm dữ liệu
-query = st.text_input(
-    "🔍 Tra cứu kho tri thức & dữ liệu internet:",
-    placeholder="Nhập từ khóa (ví dụ: công nghệ, năng lượng, AI, hạ tầng...)"
-)
+# --- THANH BÊN (SIDEBAR) - THÔNG TIN GỌI VỐN & ĐIỀU HƯỚNG ---
+with st.sidebar:
+    st.image("https://img.icons8.com/fluency/96/internet.png", width=64)
+    st.title("Wikifacts Core")
+    st.caption("Phiên bản Demo MVP v1.0")
+    
+    st.divider()
+    
+    menu = st.radio(
+        "Chức năng chính:",
+        ["🔍 Tra cứu & Lọc dữ liệu", "⚡ Mô phỏng Quét Web (Live Crawler)", "📊 Báo cáo & Thống kê"]
+    )
+    
+    st.divider()
+    st.markdown("### 🎯 Mục tiêu gọi vốn")
+    st.info(
+        "**Vòng:** Pre-Seed\n"
+        "**Bài toán:** Tự động hóa cấu trúc hóa dữ liệu web bằng công nghệ AI, giúp tối ưu thời gian nghiên cứu cho các quỹ và doanh nghiệp lớn."
+    )
+    st.caption("© 2026 Wikifacts Inc. All rights reserved.")
 
-# Dữ liệu mẫu (Mock Database) thể hiện năng lực xử lý
-data = {
-    "Tiêu đề dữ liệu": [
-        "Hệ thống định tuyến dữ liệu phân tán", 
-        "Thuật toán tối ưu hóa tìm kiếm web", 
-        "Nền tảng tri thức tự động hóa", 
-        "Bảo mật và xác thực hạ tầng đám mây"
-    ],
-    "Danh mục": ["Infrastructure", "Search Engine", "AI Automation", "Security"],
-    "Trạng thái": ["Hoạt động", "Đang thử nghiệm", "Sẵn sàng scale", "Bảo mật cao"],
-    "Độ chính xác": ["99.8%", "95.4%", "98.1%", "99.9%"]
-}
-df = pd.DataFrame(data)
+# --- DỮ LIỆU MẪU CHUẨN HÓA CHO WIKIFACTS ---
+@st.cache_data
+def load_mock_data():
+    return pd.DataFrame({
+        "ID": [101, 102, 103, 104, 105, 106],
+        "Tiêu đề bài viết / Nguồn": [
+             "Báo cáo xu hướng công nghệ AI toàn cầu Q2/2026",
+             "Phân tích thị trường hạ tầng đám mây phi tập trung",
+             "Nghiên cứu hành vi tiêu dùng số thế hệ Gen Z",
+             "Cập nhật quy định pháp lý về dữ liệu mở châu Âu",
+             "Đánh giá hiệu suất các mô hình ngôn ngữ lớn (LLM)",
+             "Xu hướng đầu tư Venture Capital vào DeepTech"
+        ],
+        "Danh mục": ["AI & Data", "Infrastructure", "Market Research", "Legal & Policy", "AI & Data", "Finance"],
+        "Nguồn gốc web": ["reuters.com", "techcrunch.com", "bloomberg.com", "euractiv.com", "arxiv.org", "crunchbase.com"],
+        "Độ tin cậy": ["99.4%", "98.7%", "97.5%", "99.1%", "99.8%", "96.9%"],
+        "Thời gian cập nhật": ["10 phút trước", "1 giờ trước", "3 giờ trước", "5 giờ trước", "1 ngày trước", "2 ngày trước"]
+    })
 
-# Hiển thị kết quả tương tác
-if query:
-    st.success(f"Đã trích xuất dữ liệu thành công cho từ khóa: **{query}**")
-    filtered_df = df[
-        df['Tiêu đề dữ liệu'].str.contains(query, case=False, na=False) | 
-        df['Danh mục'].str.contains(query, case=False, na=False)
-    ]
-    if not filtered_df.empty:
-        st.dataframe(filtered_df, use_container_width=True)
-    else:
-        st.info("Không tìm thấy khớp chính xác. Hiển thị toàn bộ kho dữ liệu liên quan:")
-        st.dataframe(df, use_container_width=True)
-else:
-    st.subheader("📊 Kho dữ liệu hệ thống (Live Preview)")
-    st.dataframe(df, use_container_width=True)
+df = load_mock_data()
 
-# Sidebar quản trị phía bên trái
-st.sidebar.header("⚙️ Thông số hệ thống")
-st.sidebar.info(
-    "**Môi trường:** Streamlit Cloud\n\n"
-    "**Trạng thái:** Live Beta (v1.0)\n\n"
-    "**Mục tiêu:** Gọi vốn Pre-Seed"
-)
+# --- GIAO DIỆN CHÍNH THEO TỪNG TAB / MENU ---
+
+if menu == "🔍 Tra cứu & Lọc dữ liệu":
+    st.title("🌐 Wikifacts — Công Cụ Tra Cứu Dữ Liệu Thông Minh")
+    st.markdown("Trải nghiệm khả năng phân loại, cấu trúc hóa và tìm kiếm thông tin tức thời từ hàng triệu nguồn web.")
+    
+    # Khu vực tìm kiếm và bộ lọc
+    col1, col2 = st.columns([3, 1])
+    with col1:
+        search_query = st.text_input(
+            "Tìm kiếm tri thức:",
+            placeholder="Nhập từ khóa (ví dụ: AI, Cloud, Venture Capital...)"
+        )
+    with col2:
+        selected_category = st.selectbox(
+            "Lọc danh mục:",
+            ["Tất cả"] + list(df["Danh mục"].unique())
+        )
+        
+    # Xử lý lọc dữ liệu
+    filtered_df = df.copy()
+    if search_query:
+        filtered_df = filtered_df[
+            filtered_df["Tiêu đề bài viết / Nguồn"].str.contains(search_query, case=False, na=False) |
+            filtered_df["Nguồn gốc web"].str.contains(search_query, case=False, na=False)
+        ]
+    if selected_category != "Tất cả":
+        filtered_df = filtered_df[filtered_df["Danh mục"] == selected_category]
+        
+    st.markdown("### 📋 Kết quả trích xuất thời gian thực")
+    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
+    
+    # Thống kê nhanh dưới bảng
+    m1, m2, m3 = st.columns(3)
+    m1.metric("Tổng bản ghi hiển thị", f"{len(filtered_df)} kết quả")
+    m2.metric("Tốc độ phản hồi trung bình", "0.04 giây")
+    m3.metric("Độ chính xác dữ liệu", "98.9%")
+
+elif menu == "⚡ Mô phỏng Quét Web (Live Crawler)":
+    st.title("⚡ Mô Phỏng Công Nghệ Quét Web (Live Crawler)")
+    st.markdown("Trình diễn năng lực tự động thu thập, làm sạch và chuẩn hóa dữ liệu từ các trang web mục tiêu.")
+    
+    target_url = st.text_input("Nhập URL trang web cần quét thử nghiệm:", value="https://example-tech-news.com/articles")
+    
+    if st.button("🚀 Bắt đầu tiến trình quét dữ liệu", type="primary"):
+        progress_bar = st.progress(0)
+        status_text = st.empty()
+        
+        status_text.text("Đang thiết lập kết nối an toàn với máy chủ đích...")
+        time.sleep(0.6)
+        progress_bar.progress(30)
+        
+        status_text.text("Đang bóc tách mã nguồn HTML & loại bỏ nhiễu quảng cáo...")
+        time.sleep(0.8)
+        progress_bar.progress(70)
+        
+        status_text.text("Đang cấu trúc hóa dữ liệu bằng mô hình AI...")
+        time.sleep(0.6)
+        progress_bar.progress(100)
+        
+        status_text.text("✅ Hoàn thành quét và đồng bộ vào cơ sở dữ liệu thành công!")
+        
+        st.success("Kết quả trích xuất mẫu từ URL:")
+        st.json({
+            "url_target": target_url,
+            "status_code": 200,
+            "extracted_title": "Báo cáo chuyển đổi số và dữ liệu lớn 2026",
+            "key_entities": ["Cloud Computing", "AI Automation", "Data Pipeline"],
+            "summary": "Nội dung đã được chuẩn hóa tự động vào hệ thống Wikifacts với độ sạch đạt 99.2%."
+        })
+
+elif menu == "📊 Báo cáo & Thống kê":
+    st.title("📊 Tổng Quan Hệ Thống & Hiệu Năng")
+    st.markdown("Số liệu tổng hợp về quy mô dữ liệu và khả năng vận hành của nền tảng.")
+    
+    c1, c2, c3, c4 = st.columns(4)
+    c1.metric("Tổng nguồn web index", "1,240,500+", "+12% tuần này")
+    c2.metric("Dữ liệu cấu trúc hóa", "45.8 GB", "Live update")
+    c3.metric("Độ trễ trung bình", "42 ms", "-5ms tối ưu")
+    c4.metric("Hệ thống hoạt động", "99.99%", "Ổn định")
+    
+    st.divider()
+    
+    st.subheader("📈 Phân bổ danh mục dữ liệu trong kho lưu trữ")
+    chart_data = pd.DataFrame({
+        "Danh mục": ["AI & Data", "Infrastructure", "Market Research", "Legal & Policy", "Finance"],
+        "Tỷ trọng (%)": [35, 25, 20, 12, 8]
+    })
+    st.bar_chart(chart_data, x="Danh mục", y="Tỷ trọng (%)", color="#1f77b4")
