@@ -127,7 +127,7 @@ with st.sidebar:
             st.session_state.admin_logged_in = False
             st.rerun()
         
-        # Backup / Restore JSON (Đã xử lý bỏ qua trường dữ liệu nhị phân bytes)
+        # Backup / Restore JSON
         export_articles = []
         for art in st.session_state.articles:
             art_copy = art.copy()
@@ -171,10 +171,18 @@ with st.sidebar:
                     file_bytes = uploaded_file.getvalue()
                     file_type = uploaded_file.type
                     
+                    # Nếu là file văn bản, đọc nội dung để hiển thị trực tiếp
+                    file_text_content = ""
+                    if uploaded_file.name.endswith(('.txt', '.md', '.csv')):
+                        try:
+                            file_text_content = file_bytes.decode('utf-8', errors='ignore')
+                        except:
+                            file_text_content = "Không thể đọc trực tiếp nội dung văn bản."
+                    
                     new_media_article = {
                         "id": custom_topic_name.lower().replace(" ", "_")[:20] + "_" + str(int(datetime.now().timestamp())),
                         "title": custom_topic_name,
-                        "content": f"Tệp đính kèm: {uploaded_file.name}",
+                        "content": file_text_content,
                         "source": "Tải lên bởi Admin",
                         "source_url": "#",
                         "updated": datetime.now().strftime("%Y-%m-%d"),
@@ -218,6 +226,11 @@ else:
                 if file_type and file_type.startswith("image/"):
                     st.image(file_data, width=600)
                 else:
+                    # Hiển thị nội dung văn bản trực tiếp nếu có
+                    if article.get("content"):
+                        st.markdown("### Nội dung tài liệu:")
+                        st.text_area("Xem trước nội dung", value=article["content"], height=250, disabled=True)
+                    
                     st.download_button(
                         label=f"⬇️ Tải xuống {article.get('file_name')}",
                         data=file_data,
