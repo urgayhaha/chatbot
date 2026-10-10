@@ -284,4 +284,76 @@ else:
             file_data = article.get("file_data")
             file_type = article.get("file_type", "")
             
-            if file
+            if file_data:
+                if file_type and file_type.startswith("image/"):
+                    st.image(file_data, width=600)
+                else:
+                    if article.get("content"):
+                        st.markdown("### Nội dung tài liệu:")
+                        st.text_area("Xem trước nội dung", value=article["content"], height=250, disabled=True)
+                    
+                    st.download_button(
+                        label=f"Tải xuống {article.get('file_name')}",
+                        data=file_data,
+                        file_name=article.get('file_name'),
+                        mime=file_type or "application/octet-stream",
+                        key=f"download_file_{article['id']}"
+                    )
+        else:
+            st.markdown(article["content"])
+        
+        # Admin edit / Xóa mục
+        if st.session_state.admin_logged_in:
+            st.markdown("---")
+            if article.get("type") not in ["media", "multi_media"]:
+                st.subheader("Chỉnh sửa bài viết (Admin)")
+                with st.form(key=f"edit_{article['id']}"):
+                    new_title = st.text_input("Tiêu đề", value=article["title"])
+                    new_content = st.text_area("Nội dung", value=article["content"], height=300)
+                    new_source = st.text_input("Tên nguồn", value=article["source"])
+                    new_url = st.text_input("URL nguồn", value=article["source_url"])
+                    new_updated = st.text_input("Ngày cập nhật (YYYY-MM-DD)", value=article["updated"])
+                    
+                    if st.form_submit_button("Lưu thay đổi"):
+                        article["title"] = new_title
+                        article["content"] = new_content
+                        article["source"] = new_source
+                        article["source_url"] = new_url
+                        article["updated"] = new_updated or datetime.now().strftime("%Y-%m-%d")
+                        st.success("Đã lưu thay đổi!")
+                        st.rerun()
+            
+            if st.button("Xóa mục này khỏi hệ thống", key=f"delete_article_{article['id']}"):
+                st.session_state.articles = [a for a in st.session_state.articles if a["id"] != article["id"]]
+                st.success("Đã xóa mục thành công!")
+                st.rerun()
+                
+            if article.get("type") not in ["media", "multi_media"]:
+                st.markdown("---")
+                st.subheader("Thêm bài viết mới")
+                with st.form(key="add_new"):
+                    add_title = st.text_input("Tiêu đề mới")
+                    add_content = st.text_area("Nội dung mới", height=200)
+                    add_source = st.text_input("Nguồn", value="Wikipedia")
+                    add_url = st.text_input("URL nguồn")
+                    if st.form_submit_button("Thêm bài viết"):
+                        if add_title and add_content:
+                            new_id = add_title.lower().replace(" ", "_")[:20]
+                            st.session_state.articles.append({
+                                "id": new_id,
+                                "title": add_title,
+                                "content": add_content,
+                                "source": add_source,
+                                "source_url": add_url or "#",
+                                "updated": datetime.now().strftime("%Y-%m-%d"),
+                                "type": "article"
+                            })
+                            st.success("Đã thêm bài viết!")
+                            st.rerun()
+                        else:
+                            st.warning("Cần tiêu đề và nội dung.")
+    else:
+        st.error("Không tìm thấy bài viết.")
+
+st.markdown("---")
+st.caption("Ứng dụng Wiki đơn giản chạy trên Streamlit. Dữ liệu và file tải lên chỉ lưu trong phiên hiện tại.")
