@@ -1,6 +1,7 @@
 import streamlit as st
 import json
 from datetime import datetime
+import hashlib
 
 # Page config
 st.set_page_config(
@@ -10,15 +11,13 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS: nút và chữ "Tải lên" màu xanh dương
+# CSS
 st.markdown("""
 <style>
     .main { background-color: #f8f9fa; }
     h1 { color: #2c3e50; font-weight: 500; }
     h2 { color: #34495e; }
     .meta { color: #7f8c8d; font-size: 0.9em; }
-    
-    /* Nút Tải lên màu xanh dương */
     div.stButton > button:first-child,
     div.stFormSubmitButton > button {
         background-color: #0066cc !important;
@@ -33,8 +32,6 @@ st.markdown("""
         background-color: #004d99 !important;
         color: white !important;
     }
-    
-    /* Chữ "Tải lên" màu xanh dương */
     .upload-label {
         color: #0066cc;
         font-weight: 600;
@@ -42,6 +39,13 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
+
+# Hàm tạo id an toàn nếu thiếu
+def ensure_id(article):
+    if "id" not in article or not article["id"]:
+        title = article.get("title", "untitled")
+        article["id"] = hashlib.md5(title.encode()).hexdigest()[:12]
+    return article
 
 # Dữ liệu mặc định
 DEFAULT_ARTICLES = [
@@ -117,7 +121,7 @@ A data scientist combines programming and statistical knowledge to extract actio
 
 # Session state
 if "articles" not in st.session_state:
-    st.session_state.articles = DEFAULT_ARTICLES.copy()
+    st.session_state.articles = [ensure_id(a) for a in DEFAULT_ARTICLES.copy()]
 
 if "admin_logged_in" not in st.session_state:
     st.session_state.admin_logged_in = False
@@ -129,7 +133,7 @@ with st.sidebar:
     st.title("Wiki AI & Data")
     st.markdown("---")
     
-    titles = [art["title"] for art in st.session_state.articles]
+    titles = [art.get("title", "Không tiêu đề") for art in st.session_state.articles]
     selected_title = st.selectbox("Chọn chủ đề:", ["-- Chọn bài viết --"] + titles)
     
     st.markdown("---")
@@ -153,7 +157,7 @@ with st.sidebar:
         st.markdown("---")
         st.subheader("Quản lý Dữ liệu & Tệp")
         
-        # Tải dữ liệu JSON (backup)
+        # Backup JSON
         export_articles = []
         for art in st.session_state.articles:
             art_copy = art.copy()
@@ -175,8 +179,6 @@ with st.sidebar:
         )
         
         st.markdown("---")
-        
-        # === GỘP THÀNH MỘT MỤC: Tải tệp lên - Upload ===
         st.markdown('<p class="upload-label">Tải tệp lên - Upload</p>', unsafe_allow_html=True)
         
         with st.form("upload_combined_form", clear_on_submit=True):
@@ -185,8 +187,7 @@ with st.sidebar:
             uploaded_files = st.file_uploader(
                 "Chọn file (JSON để khôi phục dữ liệu, hoặc hình/tài liệu để tạo mục mới)",
                 type=["json", "png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "docx", "doc", "md", "csv"],
-                accept_multiple_files=True,
-                key="combined_uploader"
+                accept_multiple_files=True
             )
             
             upload_submitted = st.form_submit_button("Tải lên")
@@ -195,20 +196,21 @@ with st.sidebar:
                 json_files = [f for f in uploaded_files if f.name.lower().endswith(".json")]
                 other_files = [f for f in uploaded_files if not f.name.lower().endswith(".json")]
                 
-                # Xử lý JSON (khôi phục dữ liệu)
+                # Xử lý JSON
                 if json_files:
                     for jf in json_files:
                         try:
                             new_data = json.load(jf)
                             if isinstance(new_data, list):
-                                st.session_state.articles = new_data
+                                # Đảm bảo mọi bài đều có id
+                                st.session_state.articles = [ensure_id(a) for a in new_data]
                                 st.success("Đã khôi phục dữ liệu từ JSON!")
                             else:
-                                st.warning(f"File {jf.name} không đúng định dạng danh sách bài viết.")
+                                st.warning(f"File {jf.name} không đúng định dạng.")
                         except Exception as e:
                             st.error(f"Lỗi đọc JSON {jf.name}: {e}")
                 
-                # Xử lý file hình/tài liệu (tạo mục mới)
+                # Xử lý file media
                 if other_files:
                     if not custom_topic_name.strip():
                         st.warning("Vui lòng nhập tên mục khi tải lên hình hoặc tài liệu.")
@@ -225,7 +227,7 @@ with st.sidebar:
                                 try:
                                     file_text_content = file_bytes.decode('utf-8', errors='ignore')
                                 except:
-                                    file_text_content = ""
+                                    pass
                             
                             files_payload.append({
                                 "file_name": uploaded_file.name,
@@ -234,15 +236,14 @@ with st.sidebar:
                                 "text_content": file_text_content
                             })
                         
-                        new_media_article = {
-                            "id": custom_topic_name.lower().replace(" ", "_")[:20] + "_" + str(int(datetime.now().timestamp())),
+                        new_media_article = ensure_id({
                             "title": custom_topic_name.strip(),
                             "source": "Tải lên bởi Admin",
                             "source_url": "#",
                             "updated": datetime.now().strftime("%Y-%m-%d"),
                             "type": "multi_media",
                             "files_list": files_payload
-                        }
+                        })
                         st.session_state.articles.append(new_media_article)
                         st.success(f"Đã tạo mục '{custom_topic_name}' với {len(other_files)} tệp!")
                 
@@ -257,22 +258,23 @@ if selected_title == "-- Chọn bài viết --":
     st.info("Hãy chọn một chủ đề từ thanh bên để xem thông tin.")
     st.markdown("### Các chủ đề hiện có:")
     for art in st.session_state.articles:
+        art = ensure_id(art)
+        badge = "[Bài viết]"
         if art.get("type") == "multi_media":
             badge = f"[Đa tệp: {len(art.get('files_list', []))}]"
         elif art.get("type") == "media":
             badge = "[Tệp/Tài liệu]"
-        else:
-            badge = "[Bài viết]"
             
-        st.markdown(f"**{art['title']}** {badge}")
-        st.markdown(f"<span class='meta'>Cập nhật: {art['updated']} | Nguồn: {art['source']}</span>", unsafe_allow_html=True)
+        st.markdown(f"**{art.get('title', 'Không tiêu đề')}** {badge}")
+        st.markdown(f"<span class='meta'>Cập nhật: {art.get('updated', '')} | Nguồn: {art.get('source', '')}</span>", unsafe_allow_html=True)
         st.markdown("---")
 else:
-    article = next((a for a in st.session_state.articles if a["title"] == selected_title), None)
+    article = next((ensure_id(a) for a in st.session_state.articles if a.get("title") == selected_title), None)
     if article:
-        st.header(article["title"])
-        st.markdown(f"<span class='meta'>Cập nhật lần cuối: **{article['updated']}**</span>", unsafe_allow_html=True)
-        st.markdown(f"<span class='meta'>Nguồn: [{article['source']}]({article['source_url']})</span>", unsafe_allow_html=True)
+        st.header(article.get("title", "Không tiêu đề"))
+        st.markdown(f"<span class='meta'>Cập nhật lần cuối: **{article.get('updated', '')}**</span>", unsafe_allow_html=True)
+        source_url = article.get("source_url", "#")
+        st.markdown(f"<span class='meta'>Nguồn: [{article.get('source', 'Không rõ')}]({source_url})</span>", unsafe_allow_html=True)
         st.markdown("---")
         
         if article.get("type") == "multi_media":
@@ -280,33 +282,33 @@ else:
             st.info(f"Mục này chứa tổng cộng {len(files_list)} tệp đính kèm.")
             
             for idx, file_item in enumerate(files_list):
-                st.markdown(f"### Tệp {idx + 1}: `{file_item['file_name']}`")
-                f_data = file_item["file_data"]
+                st.markdown(f"### Tệp {idx + 1}: `{file_item.get('file_name', 'file')}`")
+                f_data = file_item.get("file_data")
                 f_type = file_item.get("file_type", "")
                 
-                if f_type and f_type.startswith("image/"):
+                if f_data and f_type and f_type.startswith("image/"):
                     st.image(f_data, width=600)
                 else:
                     if file_item.get("text_content"):
                         st.text_area(
-                            f"Nội dung văn bản ({file_item['file_name']})",
+                            f"Nội dung văn bản ({file_item.get('file_name')})",
                             value=file_item["text_content"],
                             height=200,
                             disabled=True,
                             key=f"txt_area_{article['id']}_{idx}"
                         )
                 
-                st.download_button(
-                    label=f"Tải xuống {file_item['file_name']}",
-                    data=f_data,
-                    file_name=file_item['file_name'],
-                    mime=f_type or "application/octet-stream",
-                    key=f"dl_multi_{article['id']}_{idx}"
-                )
+                if f_data:
+                    st.download_button(
+                        label=f"Tải xuống {file_item.get('file_name', 'file')}",
+                        data=f_data,
+                        file_name=file_item.get('file_name', 'file'),
+                        mime=f_type or "application/octet-stream",
+                        key=f"dl_multi_{article['id']}_{idx}"
+                    )
                 st.markdown("---")
-                
         else:
-            st.markdown(article.get("content", ""))
+            st.markdown(article.get("content", "Không có nội dung."))
         
         # Admin actions
         if st.session_state.admin_logged_in:
@@ -314,11 +316,11 @@ else:
             if article.get("type") not in ["media", "multi_media"]:
                 st.subheader("Chỉnh sửa bài viết (Admin)")
                 with st.form(key=f"edit_{article['id']}"):
-                    new_title = st.text_input("Tiêu đề", value=article["title"])
+                    new_title = st.text_input("Tiêu đề", value=article.get("title", ""))
                     new_content = st.text_area("Nội dung", value=article.get("content", ""), height=300)
-                    new_source = st.text_input("Tên nguồn", value=article["source"])
-                    new_url = st.text_input("URL nguồn", value=article["source_url"])
-                    new_updated = st.text_input("Ngày cập nhật (YYYY-MM-DD)", value=article["updated"])
+                    new_source = st.text_input("Tên nguồn", value=article.get("source", ""))
+                    new_url = st.text_input("URL nguồn", value=article.get("source_url", ""))
+                    new_updated = st.text_input("Ngày cập nhật (YYYY-MM-DD)", value=article.get("updated", ""))
                     
                     if st.form_submit_button("Lưu thay đổi"):
                         article["title"] = new_title
@@ -330,7 +332,7 @@ else:
                         st.rerun()
             
             if st.button("Xóa mục này khỏi hệ thống", key=f"delete_article_{article['id']}"):
-                st.session_state.articles = [a for a in st.session_state.articles if a["id"] != article["id"]]
+                st.session_state.articles = [a for a in st.session_state.articles if a.get("id") != article["id"]]
                 st.success("Đã xóa mục thành công!")
                 st.rerun()
                 
@@ -344,9 +346,7 @@ else:
                     add_url = st.text_input("URL nguồn")
                     if st.form_submit_button("Thêm bài viết"):
                         if add_title and add_content:
-                            new_id = add_title.lower().replace(" ", "_")[:20]
-                            st.session_state.articles.append({
-                                "id": new_id,
+                            new_article = ensure_id({
                                 "title": add_title,
                                 "content": add_content,
                                 "source": add_source,
@@ -354,6 +354,7 @@ else:
                                 "updated": datetime.now().strftime("%Y-%m-%d"),
                                 "type": "article"
                             })
+                            st.session_state.articles.append(new_article)
                             st.success("Đã thêm bài viết!")
                             st.rerun()
                         else:
