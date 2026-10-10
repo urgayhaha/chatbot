@@ -20,7 +20,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# Dữ liệu mặc định (lấy từ Wikipedia)
+# Dữ liệu mặc định
 DEFAULT_ARTICLES = [
     {
         "id": "ai",
@@ -93,6 +93,9 @@ if "articles" not in st.session_state:
 if "admin_logged_in" not in st.session_state:
     st.session_state.admin_logged_in = False
 
+if "media_files" not in st.session_state:
+    st.session_state.media_files = []
+
 ADMIN_PASSWORD = "admin123"
 
 # Sidebar
@@ -121,24 +124,71 @@ with st.sidebar:
             st.session_state.admin_logged_in = False
             st.rerun()
         
-        # Backup / Restore
+        # Backup / Restore JSON
         data_json = json.dumps(st.session_state.articles, ensure_ascii=False, indent=2)
         st.download_button(
-            label="Tải dữ liệu (JSON)",
+            label="Tải dữ liệu bài viết (JSON)",
             data=data_json,
             file_name="wiki_data.json",
             mime="application/json"
         )
-        uploaded = st.file_uploader("Tải lên dữ liệu JSON", type="json")
-        if uploaded is not None:
+        
+        uploaded_json = st.file_uploader("Tải lên dữ liệu JSON", type="json", key="json_up")
+        if uploaded_json is not None:
             try:
-                new_data = json.load(uploaded)
+                new_data = json.load(uploaded_json)
                 if isinstance(new_data, list):
                     st.session_state.articles = new_data
                     st.success("Đã cập nhật dữ liệu!")
                     st.rerun()
             except Exception as e:
                 st.error(f"Lỗi: {e}")
+        
+        # === TẢI LÊN HÌNH & TÀI LIỆU ===
+        st.markdown("---")
+        st.subheader("📎 Tải lên Hình / Tài liệu")
+        media_files = st.file_uploader(
+            "Chọn hình ảnh hoặc tài liệu",
+            type=["png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "docx", "doc", "md", "csv"],
+            accept_multiple_files=True,
+            key="media_up"
+        )
+        
+        if media_files:
+            for file in media_files:
+                # Kiểm tra file chưa tồn tại
+                if not any(m["name"] == file.name for m in st.session_state.media_files):
+                    file_bytes = file.getvalue()
+                    st.session_state.media_files.append({
+                        "name": file.name,
+                        "type": file.type,
+                        "data": file_bytes,
+                        "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M")
+                    })
+            st.success(f"Đã thêm {len(media_files)} file!")
+            st.rerun()
+
+# Hiển thị thư viện media (chỉ khi đã đăng nhập Admin)
+if st.session_state.admin_logged_in and st.session_state.media_files:
+    with st.expander("📁 Thư viện Hình & Tài liệu", expanded=True):
+        for i, media in enumerate(st.session_state.media_files):
+            st.write(f"**{media['name']}** — {media['uploaded_at']}")
+            
+            if media["type"] and media["type"].startswith("image/"):
+                st.image(media["data"], width=400)
+            else:
+                st.download_button(
+                    label=f"⬇️ Tải xuống {media['name']}",
+                    data=media["data"],
+                    file_name=media["name"],
+                    mime=media["type"] or "application/octet-stream",
+                    key=f"download_{i}"
+                )
+            
+            if st.button(f"Xóa {media['name']}", key=f"delete_{i}"):
+                st.session_state.media_files.pop(i)
+                st.rerun()
+            st.divider()
 
 # Main content
 st.title("Wiki về AI và Dữ liệu")
@@ -206,4 +256,4 @@ else:
         st.error("Không tìm thấy bài viết.")
 
 st.markdown("---")
-st.caption("Ứng dụng Wiki đơn giản chạy trên Streamlit. Dữ liệu chỉnh sửa chỉ lưu trong phiên hiện tại.")
+st.caption("Ứng dụng Wiki đơn giản chạy trên Streamlit. Dữ liệu và file tải lên chỉ lưu trong phiên hiện tại.")
