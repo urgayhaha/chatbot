@@ -10,25 +10,35 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
-# CSS tùy chỉnh nút bấm xanh dương đậm và giao diện mượt mà
+# CSS: nút và chữ "Tải lên" màu xanh dương
 st.markdown("""
 <style>
     .main { background-color: #f8f9fa; }
     h1 { color: #2c3e50; font-weight: 500; }
     h2 { color: #34495e; }
     .meta { color: #7f8c8d; font-size: 0.9em; }
-    /* Nút tải lên màu xanh dương đậm */
-    div.stButton > button:first-child {
-        background-color: #004080;
-        color: white;
-        border-radius: 4px;
+    
+    /* Nút Tải lên màu xanh dương */
+    div.stButton > button:first-child,
+    div.stFormSubmitButton > button {
+        background-color: #0066cc !important;
+        color: white !important;
+        border-radius: 6px;
         border: none;
         font-weight: 600;
         width: 100%;
     }
-    div.stButton > button:first-child:hover {
-        background-color: #00264d;
-        color: white;
+    div.stButton > button:first-child:hover,
+    div.stFormSubmitButton > button:hover {
+        background-color: #004d99 !important;
+        color: white !important;
+    }
+    
+    /* Chữ "Tải lên" màu xanh dương */
+    .upload-label {
+        color: #0066cc;
+        font-weight: 600;
+        font-size: 1.05em;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -105,7 +115,7 @@ A data scientist combines programming and statistical knowledge to extract actio
     }
 ]
 
-# Khởi tạo session state
+# Session state
 if "articles" not in st.session_state:
     st.session_state.articles = DEFAULT_ARTICLES.copy()
 
@@ -143,7 +153,7 @@ with st.sidebar:
         st.markdown("---")
         st.subheader("Quản lý Dữ liệu & Tệp")
         
-        # Backup JSON
+        # Tải dữ liệu JSON (backup)
         export_articles = []
         for art in st.session_state.articles:
             art_copy = art.copy()
@@ -155,7 +165,7 @@ with st.sidebar:
                     clean_files.append(f_c)
                 art_copy["files_list"] = clean_files
             export_articles.append(art_copy)
-            
+        
         data_json = json.dumps(export_articles, ensure_ascii=False, indent=2)
         st.download_button(
             label="Tải dữ liệu bài viết (JSON)",
@@ -164,57 +174,69 @@ with st.sidebar:
             mime="application/json"
         )
         
-        uploaded_json = st.file_uploader("Tải lên dữ liệu JSON", type="json", key="json_up")
-        if uploaded_json is not None:
-            try:
-                new_data = json.load(uploaded_json)
-                if isinstance(new_data, list):
-                    st.session_state.articles = new_data
-                    st.success("Đã cập nhật dữ liệu!")
-                    st.rerun()
-            except Exception as e:
-                st.error(f"Lỗi: {e}")
-        
         st.markdown("---")
         
-        # Gộp chung form Tải lên file & Đặt tên mục
-        with st.form("upload_media_form"):
+        # === GỘP THÀNH MỘT MỤC: Tải tệp lên - Upload ===
+        st.markdown('<p class="upload-label">Tải tệp lên - Upload</p>', unsafe_allow_html=True)
+        
+        with st.form("upload_combined_form", clear_on_submit=True):
             custom_topic_name = st.text_input("Nhập tên mục / chủ đề mới:")
+            
             uploaded_files = st.file_uploader(
-                "Chọn file (Tối đa 10 tệp)",
-                type=["png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "docx", "doc", "md", "csv"],
-                accept_multiple_files=True
+                "Chọn file (JSON để khôi phục dữ liệu, hoặc hình/tài liệu để tạo mục mới)",
+                type=["json", "png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "docx", "doc", "md", "csv"],
+                accept_multiple_files=True,
+                key="combined_uploader"
             )
-            # Đổi tên nút thành "Tải lên"
+            
             upload_submitted = st.form_submit_button("Tải lên")
             
-            if upload_submitted:
-                if custom_topic_name and uploaded_files:
-                    if len(uploaded_files) > 10:
-                        st.warning("Bạn chỉ được tải lên tối đa 10 tệp trong một lần!")
+            if upload_submitted and uploaded_files:
+                json_files = [f for f in uploaded_files if f.name.lower().endswith(".json")]
+                other_files = [f for f in uploaded_files if not f.name.lower().endswith(".json")]
+                
+                # Xử lý JSON (khôi phục dữ liệu)
+                if json_files:
+                    for jf in json_files:
+                        try:
+                            new_data = json.load(jf)
+                            if isinstance(new_data, list):
+                                st.session_state.articles = new_data
+                                st.success("Đã khôi phục dữ liệu từ JSON!")
+                            else:
+                                st.warning(f"File {jf.name} không đúng định dạng danh sách bài viết.")
+                        except Exception as e:
+                            st.error(f"Lỗi đọc JSON {jf.name}: {e}")
+                
+                # Xử lý file hình/tài liệu (tạo mục mới)
+                if other_files:
+                    if not custom_topic_name.strip():
+                        st.warning("Vui lòng nhập tên mục khi tải lên hình hoặc tài liệu.")
+                    elif len(other_files) > 10:
+                        st.warning("Chỉ được tải tối đa 10 tệp trong một lần!")
                     else:
                         files_payload = []
-                        for uploaded_file in uploaded_files:
+                        for uploaded_file in other_files:
                             file_bytes = uploaded_file.getvalue()
-                            file_type = uploaded_file.type
+                            file_type = uploaded_file.type or ""
                             
                             file_text_content = ""
-                            if uploaded_file.name.endswith(('.txt', '.md', '.csv')):
+                            if uploaded_file.name.lower().endswith(('.txt', '.md', '.csv')):
                                 try:
                                     file_text_content = file_bytes.decode('utf-8', errors='ignore')
                                 except:
                                     file_text_content = ""
-                                    
+                            
                             files_payload.append({
                                 "file_name": uploaded_file.name,
                                 "file_type": file_type,
                                 "file_data": file_bytes,
                                 "text_content": file_text_content
                             })
-                            
+                        
                         new_media_article = {
                             "id": custom_topic_name.lower().replace(" ", "_")[:20] + "_" + str(int(datetime.now().timestamp())),
-                            "title": custom_topic_name,
+                            "title": custom_topic_name.strip(),
                             "source": "Tải lên bởi Admin",
                             "source_url": "#",
                             "updated": datetime.now().strftime("%Y-%m-%d"),
@@ -222,10 +244,10 @@ with st.sidebar:
                             "files_list": files_payload
                         }
                         st.session_state.articles.append(new_media_article)
-                        st.success(f"Đã tải lên mục '{custom_topic_name}' với {len(uploaded_files)} tệp thành công!")
-                        st.rerun()
-                else:
-                    st.warning("Vui lòng nhập tên mục và chọn ít nhất một file.")
+                        st.success(f"Đã tạo mục '{custom_topic_name}' với {len(other_files)} tệp!")
+                
+                if json_files or other_files:
+                    st.rerun()
 
 # Main content
 st.title("Wiki về AI và Dữ liệu")
@@ -253,7 +275,6 @@ else:
         st.markdown(f"<span class='meta'>Nguồn: [{article['source']}]({article['source_url']})</span>", unsafe_allow_html=True)
         st.markdown("---")
         
-        # Hiển thị danh sách đa tệp
         if article.get("type") == "multi_media":
             files_list = article.get("files_list", [])
             st.info(f"Mục này chứa tổng cộng {len(files_list)} tệp đính kèm.")
@@ -261,15 +282,20 @@ else:
             for idx, file_item in enumerate(files_list):
                 st.markdown(f"### Tệp {idx + 1}: `{file_item['file_name']}`")
                 f_data = file_item["file_data"]
-                f_type = file_item["file_type"]
+                f_type = file_item.get("file_type", "")
                 
                 if f_type and f_type.startswith("image/"):
                     st.image(f_data, width=600)
                 else:
                     if file_item.get("text_content"):
-                        st.text_area(f"Nội dung văn bản ({file_item['file_name']})", value=file_item["text_content"], height=200, disabled=True, key=f"txt_area_{article['id']}_{idx}")
+                        st.text_area(
+                            f"Nội dung văn bản ({file_item['file_name']})",
+                            value=file_item["text_content"],
+                            height=200,
+                            disabled=True,
+                            key=f"txt_area_{article['id']}_{idx}"
+                        )
                 
-                # Nút tải xuống màu xanh dương
                 st.download_button(
                     label=f"Tải xuống {file_item['file_name']}",
                     data=f_data,
@@ -279,37 +305,17 @@ else:
                 )
                 st.markdown("---")
                 
-        elif article.get("type") == "media":
-            st.info(f"Tệp đính kèm: **{article.get('file_name')}**")
-            file_data = article.get("file_data")
-            file_type = article.get("file_type", "")
-            
-            if file_data:
-                if file_type and file_type.startswith("image/"):
-                    st.image(file_data, width=600)
-                else:
-                    if article.get("content"):
-                        st.markdown("### Nội dung tài liệu:")
-                        st.text_area("Xem trước nội dung", value=article["content"], height=250, disabled=True)
-                    
-                    st.download_button(
-                        label=f"Tải xuống {article.get('file_name')}",
-                        data=file_data,
-                        file_name=article.get('file_name'),
-                        mime=file_type or "application/octet-stream",
-                        key=f"download_file_{article['id']}"
-                    )
         else:
-            st.markdown(article["content"])
+            st.markdown(article.get("content", ""))
         
-        # Admin edit / Xóa mục
+        # Admin actions
         if st.session_state.admin_logged_in:
             st.markdown("---")
             if article.get("type") not in ["media", "multi_media"]:
                 st.subheader("Chỉnh sửa bài viết (Admin)")
                 with st.form(key=f"edit_{article['id']}"):
                     new_title = st.text_input("Tiêu đề", value=article["title"])
-                    new_content = st.text_area("Nội dung", value=article["content"], height=300)
+                    new_content = st.text_area("Nội dung", value=article.get("content", ""), height=300)
                     new_source = st.text_input("Tên nguồn", value=article["source"])
                     new_url = st.text_input("URL nguồn", value=article["source_url"])
                     new_updated = st.text_input("Ngày cập nhật (YYYY-MM-DD)", value=article["updated"])
