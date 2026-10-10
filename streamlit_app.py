@@ -131,8 +131,14 @@ with st.sidebar:
         export_articles = []
         for art in st.session_state.articles:
             art_copy = art.copy()
-            if "file_data" in art_copy:
-                art_copy["file_data"] = "[binary_file_attached]"
+            if "files_list" in art_copy:
+                # Ẩn dữ liệu nhị phân khi xuất JSON
+                clean_files = []
+                for f in art_copy["files_list"]:
+                    f_c = f.copy()
+                    f_c["file_data"] = "[binary]"
+                    clean_files.append(f_c)
+                art_copy["files_list"] = clean_files
             export_articles.append(art_copy)
             
         data_json = json.dumps(export_articles, ensure_ascii=False, indent=2)
@@ -154,48 +160,57 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Lỗi: {e}")
         
-        # === TẢI LÊN HÌNH & TÀI LIỆU VỚI TÊN MỤC RIÊNG ===
+        # === TẢI LÊN NHIỀU TỆP (TỐI ĐA 10 TỆP) VÀ ĐẶT TÊN MỤC RIÊNG ===
         st.markdown("---")
-        st.subheader("📎 Tải lên File & Đặt Tên Mục")
+        st.subheader("📎 Tải lên Nhiều File & Đặt Tên Mục")
         
         with st.form("upload_media_form"):
-            custom_topic_name = st.text_input("Nhập tên mục / chủ đề riêng cho file:")
-            uploaded_file = st.file_uploader(
-                "Chọn hình ảnh hoặc tài liệu",
-                type=["png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "docx", "doc", "md", "csv"]
+            custom_topic_name = st.text_input("Nhập tên mục / chủ đề riêng:")
+            uploaded_files = st.file_uploader(
+                "Chọn hình ảnh hoặc tài liệu (Tối đa 10 tệp)",
+                type=["png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "docx", "doc", "md", "csv"],
+                accept_multiple_files=True
             )
             upload_submitted = st.form_submit_button("Thêm vào danh mục")
             
             if upload_submitted:
-                if custom_topic_name and uploaded_file:
-                    file_bytes = uploaded_file.getvalue()
-                    file_type = uploaded_file.type
-                    
-                    # Nếu là file văn bản, đọc nội dung để hiển thị trực tiếp
-                    file_text_content = ""
-                    if uploaded_file.name.endswith(('.txt', '.md', '.csv')):
-                        try:
-                            file_text_content = file_bytes.decode('utf-8', errors='ignore')
-                        except:
-                            file_text_content = "Không thể đọc trực tiếp nội dung văn bản."
-                    
-                    new_media_article = {
-                        "id": custom_topic_name.lower().replace(" ", "_")[:20] + "_" + str(int(datetime.now().timestamp())),
-                        "title": custom_topic_name,
-                        "content": file_text_content,
-                        "source": "Tải lên bởi Admin",
-                        "source_url": "#",
-                        "updated": datetime.now().strftime("%Y-%m-%d"),
-                        "type": "media",
-                        "file_name": uploaded_file.name,
-                        "file_type": file_type,
-                        "file_data": file_bytes
-                    }
-                    st.session_state.articles.append(new_media_article)
-                    st.success(f"Đã thêm mục '{custom_topic_name}' lên menu thành công!")
-                    st.rerun()
+                if custom_topic_name and uploaded_files:
+                    if len(uploaded_files) > 10:
+                        st.warning("⚠️ Bạn chỉ được tải lên tối đa 10 tệp trong một lần!")
+                    else:
+                        files_payload = []
+                        for uploaded_file in uploaded_files:
+                            file_bytes = uploaded_file.getvalue()
+                            file_type = uploaded_file.type
+                            
+                            file_text_content = ""
+                            if uploaded_file.name.endswith(('.txt', '.md', '.csv')):
+                                try:
+                                    file_text_content = file_bytes.decode('utf-8', errors='ignore')
+                                except:
+                                    file_text_content = ""
+                                    
+                            files_payload.append({
+                                "file_name": uploaded_file.name,
+                                "file_type": file_type,
+                                "file_data": file_bytes,
+                                "text_content": file_text_content
+                            })
+                            
+                        new_media_article = {
+                            "id": custom_topic_name.lower().replace(" ", "_")[:20] + "_" + str(int(datetime.now().timestamp())),
+                            "title": custom_topic_name,
+                            "source": "Tải lên bởi Admin",
+                            "source_url": "#",
+                            "updated": datetime.now().strftime("%Y-%m-%d"),
+                            "type": "multi_media",
+                            "files_list": files_payload
+                        }
+                        st.session_state.articles.append(new_media_article)
+                        st.success(f"🎉 Đã thêm mục '{custom_topic_name}' với {len(uploaded_files)} tệp lên menu thành công!")
+                        st.rerun()
                 else:
-                    st.warning("Vui lòng nhập tên mục và chọn file.")
+                    st.warning("Vui lòng nhập tên mục và chọn ít nhất một file.")
 
 # Main content
 st.title("Wiki về AI và Dữ liệu")
@@ -205,7 +220,13 @@ if selected_title == "-- Chọn bài viết --":
     st.info("👈 Hãy chọn một chủ đề từ thanh bên để xem thông tin.")
     st.markdown("### Các chủ đề hiện có:")
     for art in st.session_state.articles:
-        badge = "📁 [Tệp/Tài liệu]" if art.get("type") == "media" else "📖 [Bài viết]"
+        if art.get("type") == "multi_media":
+            badge = f"📁 [Đa tệp: {len(art.get('files_list', []))}]"
+        elif art.get("type") == "media":
+            badge = "📁 [Tệp/Tài liệu]"
+        else:
+            badge = "📖 [Bài viết]"
+            
         st.markdown(f"**{art['title']}** {badge}")
         st.markdown(f"<span class='meta'>Cập nhật: {art['updated']} | Nguồn: {art['source']}</span>", unsafe_allow_html=True)
         st.markdown("---")
@@ -217,7 +238,33 @@ else:
         st.markdown(f"<span class='meta'>📖 Nguồn: [{article['source']}]({article['source_url']})</span>", unsafe_allow_html=True)
         st.markdown("---")
         
-        if article.get("type") == "media":
+        # Hiển thị danh sách đa tệp (nếu là mục chứa nhiều file)
+        if article.get("type") == "multi_media":
+            files_list = article.get("files_list", [])
+            st.info(📂 Mục này chứa tổng cộng **{len(files_list)} tệp đính kèm**.")
+            
+            for idx, file_item in enumerate(files_list):
+                st.markdown(f"### Tệp {idx + 1}: `{file_item['file_name']}`")
+                f_data = file_item["file_data"]
+                f_type = file_item["file_type"]
+                
+                if f_type and f_type.startswith("image/"):
+                    st.image(f_data, width=600)
+                else:
+                    if file_item.get("text_content"):
+                        st.text_area(f"Nội dung văn bản ({file_item['file_name']})", value=file_item["text_content"], height=200, disabled=True, key=f"txt_area_{article['id']}_{idx}")
+                        
+                    st.download_button(
+                        label=f"⬇️ Tải xuống {file_item['file_name']}",
+                        data=f_data,
+                        file_name=file_item['file_name'],
+                        mime=f_type or "application/octet-stream",
+                        key=f"dl_multi_{article['id']}_{idx}"
+                    )
+                st.markdown("---")
+                
+        elif article.get("type") == "media":
+            # Tương thích ngược với các file đơn cũ
             st.info(f"📂 Tệp đính kèm: **{article.get('file_name')}**")
             file_data = article.get("file_data")
             file_type = article.get("file_type", "")
@@ -226,7 +273,6 @@ else:
                 if file_type and file_type.startswith("image/"):
                     st.image(file_data, width=600)
                 else:
-                    # Hiển thị nội dung văn bản trực tiếp nếu có
                     if article.get("content"):
                         st.markdown("### Nội dung tài liệu:")
                         st.text_area("Xem trước nội dung", value=article["content"], height=250, disabled=True)
@@ -241,9 +287,10 @@ else:
         else:
             st.markdown(article["content"])
         
+        # Admin edit / Xóa mục
         if st.session_state.admin_logged_in:
             st.markdown("---")
-            if article.get("type") != "media":
+            if article.get("type") not in ["media", "multi_media"]:
                 st.subheader("✏️ Chỉnh sửa bài viết (Admin)")
                 with st.form(key=f"edit_{article['id']}"):
                     new_title = st.text_input("Tiêu đề", value=article["title"])
@@ -266,7 +313,7 @@ else:
                 st.success("Đã xóa mục thành công!")
                 st.rerun()
                 
-            if article.get("type") != "media":
+            if article.get("type") not in ["media", "multi_media"]:
                 st.markdown("---")
                 st.subheader("➕ Thêm bài viết mới")
                 with st.form(key="add_new"):
