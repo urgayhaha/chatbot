@@ -154,4 +154,124 @@ with st.sidebar:
         with st.form("upload_media_form"):
             custom_topic_name = st.text_input("Nhập tên mục / chủ đề riêng cho file:")
             uploaded_file = st.file_uploader(
-                "Chọn hình ảnh
+                "Chọn hình ảnh hoặc tài liệu",
+                type=["png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "docx", "doc", "md", "csv"]
+            )
+            upload_submitted = st.form_submit_button("Thêm vào danh mục")
+            
+            if upload_submitted:
+                if custom_topic_name and uploaded_file:
+                    file_bytes = uploaded_file.getvalue()
+                    file_type = uploaded_file.type
+                    
+                    new_media_article = {
+                        "id": custom_topic_name.lower().replace(" ", "_")[:20] + "_" + str(int(datetime.now().timestamp())),
+                        "title": custom_topic_name,
+                        "content": f"Tệp đính kèm: {uploaded_file.name}",
+                        "source": "Tải lên bởi Admin",
+                        "source_url": "#",
+                        "updated": datetime.now().strftime("%Y-%m-%d"),
+                        "type": "media",
+                        "file_name": uploaded_file.name,
+                        "file_type": file_type,
+                        "file_data": file_bytes
+                    }
+                    st.session_state.articles.append(new_media_article)
+                    st.success(f"Đã thêm mục '{custom_topic_name}' lên menu thành công!")
+                    st.rerun()
+                else:
+                    st.warning("Vui lòng nhập tên mục và chọn file.")
+
+# Main content
+st.title("Wiki về AI và Dữ liệu")
+st.caption("Nguồn nội dung chủ yếu từ Wikipedia. Bố cục đơn giản, dễ đọc.")
+
+if selected_title == "-- Chọn bài viết --":
+    st.info("👈 Hãy chọn một chủ đề từ thanh bên để xem thông tin.")
+    st.markdown("### Các chủ đề hiện có:")
+    for art in st.session_state.articles:
+        badge = "📁 [Tệp/Tài liệu]" if art.get("type") == "media" else "📖 [Bài viết]"
+        st.markdown(f"**{art['title']}** {badge}")
+        st.markdown(f"<span class='meta'>Cập nhật: {art['updated']} | Nguồn: {art['source']}</span>", unsafe_allow_html=True)
+        st.markdown("---")
+else:
+    article = next((a for a in st.session_state.articles if a["title"] == selected_title), None)
+    if article:
+        st.header(article["title"])
+        st.markdown(f"<span class='meta'>🕒 Cập nhật lần cuối: **{article['updated']}**</span>", unsafe_allow_html=True)
+        st.markdown(f"<span class='meta'>📖 Nguồn: [{article['source']}]({article['source_url']})</span>", unsafe_allow_html=True)
+        st.markdown("---")
+        
+        if article.get("type") == "media":
+            st.info(f"📂 Tệp đính kèm: **{article.get('file_name')}**")
+            file_data = article.get("file_data")
+            file_type = article.get("file_type", "")
+            
+            if file_data:
+                if file_type and file_type.startswith("image/"):
+                    st.image(file_data, width=600)
+                else:
+                    st.download_button(
+                        label=f"⬇️ Tải xuống {article.get('file_name')}",
+                        data=file_data,
+                        file_name=article.get('file_name'),
+                        mime=file_type or "application/octet-stream",
+                        key=f"download_file_{article['id']}"
+                    )
+        else:
+            st.markdown(article["content"])
+        
+        if st.session_state.admin_logged_in:
+            st.markdown("---")
+            if article.get("type") != "media":
+                st.subheader("✏️ Chỉnh sửa bài viết (Admin)")
+                with st.form(key=f"edit_{article['id']}"):
+                    new_title = st.text_input("Tiêu đề", value=article["title"])
+                    new_content = st.text_area("Nội dung", value=article["content"], height=300)
+                    new_source = st.text_input("Tên nguồn", value=article["source"])
+                    new_url = st.text_input("URL nguồn", value=article["source_url"])
+                    new_updated = st.text_input("Ngày cập nhật (YYYY-MM-DD)", value=article["updated"])
+                    
+                    if st.form_submit_button("Lưu thay đổi"):
+                        article["title"] = new_title
+                        article["content"] = new_content
+                        article["source"] = new_source
+                        article["source_url"] = new_url
+                        article["updated"] = new_updated or datetime.now().strftime("%Y-%m-%d")
+                        st.success("Đã lưu thay đổi!")
+                        st.rerun()
+            
+            if st.button("🗑️ Xóa mục này khỏi hệ thống", key=f"delete_article_{article['id']}"):
+                st.session_state.articles = [a for a in st.session_state.articles if a["id"] != article["id"]]
+                st.success("Đã xóa mục thành công!")
+                st.rerun()
+                
+            if article.get("type") != "media":
+                st.markdown("---")
+                st.subheader("➕ Thêm bài viết mới")
+                with st.form(key="add_new"):
+                    add_title = st.text_input("Tiêu đề mới")
+                    add_content = st.text_area("Nội dung mới", height=200)
+                    add_source = st.text_input("Nguồn", value="Wikipedia")
+                    add_url = st.text_input("URL nguồn")
+                    if st.form_submit_button("Thêm bài viết"):
+                        if add_title and add_content:
+                            new_id = add_title.lower().replace(" ", "_")[:20]
+                            st.session_state.articles.append({
+                                "id": new_id,
+                                "title": add_title,
+                                "content": add_content,
+                                "source": add_source,
+                                "source_url": add_url or "#",
+                                "updated": datetime.now().strftime("%Y-%m-%d"),
+                                "type": "article"
+                            })
+                            st.success("Đã thêm bài viết!")
+                            st.rerun()
+                        else:
+                            st.warning("Cần tiêu đề và nội dung.")
+    else:
+        st.error("Không tìm thấy bài viết.")
+
+st.markdown("---")
+st.caption("Ứng dụng Wiki đơn giản chạy trên Streamlit. Dữ liệu và file tải lên chỉ lưu trong phiên hiện tại.")
