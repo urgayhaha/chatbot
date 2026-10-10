@@ -132,7 +132,6 @@ with st.sidebar:
         for art in st.session_state.articles:
             art_copy = art.copy()
             if "files_list" in art_copy:
-                # Ẩn dữ liệu nhị phân khi xuất JSON
                 clean_files = []
                 for f in art_copy["files_list"]:
                     f_c = f.copy()
@@ -238,10 +237,10 @@ else:
         st.markdown(f"<span class='meta'>📖 Nguồn: [{article['source']}]({article['source_url']})</span>", unsafe_allow_html=True)
         st.markdown("---")
         
-        # Hiển thị danh sách đa tệp (nếu là mục chứa nhiều file)
+        # Hiển thị danh sách đa tệp
         if article.get("type") == "multi_media":
             files_list = article.get("files_list", [])
-            st.info(📂 Mục này chứa tổng cộng **{len(files_list)} tệp đính kèm**.")
+            st.info(f"📁 Mục này chứa tổng cộng **{len(files_list)} tệp đính kèm**.")
             
             for idx, file_item in enumerate(files_list):
                 st.markdown(f"### Tệp {idx + 1}: `{file_item['file_name']}`")
@@ -264,7 +263,6 @@ else:
                 st.markdown("---")
                 
         elif article.get("type") == "media":
-            # Tương thích ngược với các file đơn cũ
             st.info(f"📂 Tệp đính kèm: **{article.get('file_name')}**")
             file_data = article.get("file_data")
             file_type = article.get("file_type", "")
