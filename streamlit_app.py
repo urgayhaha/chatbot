@@ -1,294 +1,209 @@
 import streamlit as st
-import pandas as pd
-import time
-import urllib.request
-import re
-from html import unescape
+import json
+from datetime import datetime
 
-# --- CẤU HÌNH TRANG ---
+# Page config
 st.set_page_config(
-    page_title="Wikifacts Beta | Nền Tảng Dữ Liệu Web",
-    page_icon="🌐",
+    page_title="Wiki AI & Data",
+    page_icon="📚",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# --- HÀM LÀM SẠCH VĂN BẢN THÔNG MINH (GIỮ NGUYÊN DẤU CÂU & TIẾNG VIỆT) ---
-def advanced_text_cleaner(raw_content):
-    # 1. Xóa bỏ toàn bộ thẻ HTML, style, font chữ, màu sắc do web áp đặt
-    text = re.sub(r'<[^>]*>', ' ', raw_content)
-    
-    # 2. Xóa các ký tự trang trí thừa thãi nhưng GIỮ NGUYÊN dấu câu (. , ! ? : ;) và dấu tiếng Việt
-    text = re.sub(r'[\*\•–—~`]', ' ', text)
-    
-    # 3. Gom khoảng trắng và cách dòng quá dài thành một khoảng cách chuẩn
-    text = re.sub(r'\s+', ' ', text).strip()
-    
-    return text
+# CSS đơn giản
+st.markdown("""
+<style>
+    .main { background-color: #f8f9fa; }
+    h1 { color: #2c3e50; font-weight: 500; }
+    h2 { color: #34495e; }
+    .meta { color: #7f8c8d; font-size: 0.9em; }
+</style>
+""", unsafe_allow_html=True)
 
-# --- QUẢN LÝ DỮ LIỆU BẰNG SESSION STATE ---
-if "data_store" not in st.session_state:
-    st.session_state.data_store = pd.DataFrame({
-        "ID": [101, 102, 103, 104, 105, 106],
-        "Tiêu đề bài viết / Nguồn": [
-             "Báo cáo xu hướng công nghệ AI toàn cầu Q2/2026",
-             "Phân tích thị trường hạ tầng đám mây phi tập trung",
-             "Nghiên cứu hành vi tiêu dùng số thế hệ Gen Z",
-             "Cập nhật quy định pháp lý về dữ liệu mở châu Âu",
-             "Đánh giá hiệu suất các mô hình ngôn ngữ lớn (LLM)",
-             "Xu hướng đầu tư Venture Capital vào DeepTech"
-        ],
-        "Danh mục": ["AI & Data", "Infrastructure", "Market Research", "Legal & Policy", "AI & Data", "Finance"],
-        "Nguồn gốc web": ["reuters.com", "techcrunch.com", "bloomberg.com", "euractiv.com", "arxiv.org", "crunchbase.com"],
-        "Độ tin cậy": ["99.4%", "98.7%", "97.5%", "99.1%", "99.8%", "96.9%"],
-        "Thời gian cập nhật": ["10 phút trước", "1 giờ trước", "3 giờ trước", "5 giờ trước", "1 ngày trước", "2 ngày trước"]
-    })
+# Dữ liệu mặc định (lấy từ Wikipedia)
+DEFAULT_ARTICLES = [
+    {
+        "id": "ai",
+        "title": "Artificial Intelligence (AI)",
+        "content": """Artificial intelligence (AI) is the capability of computational systems to perform tasks typically associated with human intelligence, such as learning, reasoning, problem-solving, perception, and decision-making. It is a field of research in engineering, mathematics, and computer science that develops and studies methods and software enabling machines to perceive their environment and use learning and intelligence to take actions that maximize their chances of achieving defined goals.
 
-# --- THANH BÊN (SIDEBAR) & MENU ---
+High-profile applications of AI include advanced web search engines, chatbots, virtual assistants, autonomous vehicles, play and analysis in strategy games (e.g., chess and Go), and content generation (e.g., text, images, audio, and videos).
+
+Artificial intelligence was founded as an academic discipline in 1956. The field experienced multiple cycles of optimism followed by periods of disappointment and loss of funding, known as AI winters. Funding and interest increased substantially after 2012, with the use of graphics processing units (GPUs) to accelerate neural networks and deep learning.""",
+        "source": "Wikipedia - Artificial intelligence",
+        "source_url": "https://en.wikipedia.org/wiki/Artificial_intelligence",
+        "updated": "2026-10-10"
+    },
+    {
+        "id": "ml",
+        "title": "Machine Learning (ML)",
+        "content": """Machine learning (ML) is a field of study in artificial intelligence concerned with the development and study of statistical algorithms that can learn from data and generalize to unseen data, and thus perform tasks without being explicitly programmed.
+
+Key paradigms include supervised learning, unsupervised learning, and reinforcement learning. The term "machine learning" was coined in 1959 by Arthur Samuel. Advances in deep learning have made ML central to modern AI applications.""",
+        "source": "Wikipedia - Machine learning",
+        "source_url": "https://en.wikipedia.org/wiki/Machine_learning",
+        "updated": "2026-10-10"
+    },
+    {
+        "id": "dl",
+        "title": "Deep Learning (DL)",
+        "content": """Deep learning (DL) focuses on utilizing multilayered neural networks to perform tasks such as classification, regression, and representation learning. It takes inspiration from biological neuroscience and involves stacking artificial neurons into layers.
+
+Deep learning is a subfield of machine learning that uses neural networks with many layers to model complex patterns in data. It has driven major advances in image recognition, speech processing, and generative AI.""",
+        "source": "Wikipedia - Deep learning",
+        "source_url": "https://en.wikipedia.org/wiki/Deep_learning",
+        "updated": "2026-10-10"
+    },
+    {
+        "id": "nn",
+        "title": "Artificial Neural Networks (ANN)",
+        "content": """An artificial neural network (ANN) is a computational model inspired by biological neural networks, consisting of interconnected artificial neurons organized in layers. Each neuron processes signals via weights and activation functions.
+
+ANNs form the core of deep learning and excel in tasks like image recognition, speech processing, and natural language tasks.""",
+        "source": "Wikipedia - Artificial neural network",
+        "source_url": "https://en.wikipedia.org/wiki/Artificial_neural_network",
+        "updated": "2026-10-10"
+    },
+    {
+        "id": "bigdata",
+        "title": "Big Data",
+        "content": """Big data refers to data sets that are too large or complex to be dealt with by traditional data-processing software. It is characterized by the three V's: volume, velocity, and variety.
+
+Big data analysis uses predictive analytics and machine learning to extract value in fields like healthcare, business, and science.""",
+        "source": "Wikipedia - Big data",
+        "source_url": "https://en.wikipedia.org/wiki/Big_data",
+        "updated": "2026-10-10"
+    },
+    {
+        "id": "datascience",
+        "title": "Data Science",
+        "content": """Data science is an interdisciplinary field that uses statistics, scientific computing, algorithms, and coding to extract knowledge from structured or unstructured data.
+
+A data scientist combines programming and statistical knowledge to extract actionable insights from data.""",
+        "source": "Wikipedia - Data science",
+        "source_url": "https://en.wikipedia.org/wiki/Data_science",
+        "updated": "2026-10-10"
+    }
+]
+
+# Khởi tạo session state
+if "articles" not in st.session_state:
+    st.session_state.articles = DEFAULT_ARTICLES.copy()
+
+if "admin_logged_in" not in st.session_state:
+    st.session_state.admin_logged_in = False
+
+ADMIN_PASSWORD = "admin123"
+
+# Sidebar
 with st.sidebar:
-    st.image("https://img.icons8.com/fluency/96/internet.png", width=64)
-    st.title("Wikifacts Core")
-    st.caption("Phiên bản Demo MVP v1.0")
+    st.title("📚 Wiki AI & Data")
+    st.markdown("---")
     
-    st.divider()
+    titles = [art["title"] for art in st.session_state.articles]
+    selected_title = st.selectbox("Chọn chủ đề:", ["-- Chọn bài viết --"] + titles)
     
-    menu = st.radio(
-        "Chức năng chính:",
-        ["🔍 Tra cứu & Xem tệp", "⚡ Quét Web & Làm Sạch (Live Crawler)", "📊 Báo cáo & Thống kê", "🔒 Quản trị (Admin Panel)"],
-        key="main_navigation_radio"
-    )
+    st.markdown("---")
+    st.subheader("🔐 Admin")
     
-    st.divider()
-    st.markdown("### 🎯 Mục tiêu gọi vốn")
-    st.info(
-        "**Vòng:** Pre-Seed\n"
-        "**Bài toán:** Tự động hóa cấu trúc hóa dữ liệu web bằng công nghệ AI."
-    )
-
-df = st.session_state.data_store
-
-# --- GIAO DIỆN CHÍNH ---
-
-if menu == "🔍 Tra cứu & Xem tệp":
-    st.title("🌐 Wikifacts — Tra Cứu & Trích Xuất Tệp Dữ Liệu")
-    st.markdown("Tra cứu kho tri thức hệ thống và bấm chọn từng bản ghi để xem chi tiết cấu trúc tệp dữ liệu đã được làm sạch.")
-    
-    col1, col2 = st.columns([3, 1])
-    with col1:
-        search_query = st.text_input(
-            "Tìm kiếm tri thức trong kho lưu trữ:",
-            placeholder="Nhập từ khóa (ví dụ: AI, Cloud, Venture Capital...)",
-            key="search_input_main_v2"
-        )
-    with col2:
-        selected_category = st.selectbox(
-            "Lọc danh mục dữ liệu:",
-            ["Tất cả"] + list(df["Danh mục"].unique()),
-            key="category_select_main_v2"
-        )
-        
-    filtered_df = df.copy()
-    if search_query:
-        filtered_df = filtered_df[
-            filtered_df["Tiêu đề bài viết / Nguồn"].str.contains(search_query, case=False, na=False) |
-            filtered_df["Nguồn gốc web"].str.contains(search_query, case=False, na=False)
-        ]
-    if selected_category != "Tất cả":
-        filtered_df = filtered_df[filtered_df["Danh mục"] == selected_category]
-        
-    st.markdown("### 📋 Danh sách tệp dữ liệu hệ thống")
-    st.dataframe(filtered_df, use_container_width=True, hide_index=True)
-    
-    st.divider()
-    
-    st.subheader("📂 Xem Chi Tiết Cấu Trúc Tệp (File Inspector)")
-    
-    if not filtered_df.empty:
-        selected_title = st.selectbox(
-            "Chọn tệp bản ghi để kiểm tra chi tiết nội dung:",
-            filtered_df["Tiêu đề bài viết / Nguồn"].tolist(),
-            key="file_inspector_select_v2"
-        )
-        
-        record_info = filtered_df[filtered_df["Tiêu đề bài viết / Nguồn"] == selected_title].iloc[0]
-        
-        col_info1, col_info2 = st.columns(2)
-        with col_info1:
-            st.markdown(f"**🆔 Mã định danh (ID):** `{record_info['ID']}`")
-            st.markdown(f"**📌 Tiêu đề tệp:** {record_info['Tiêu đề bài viết / Nguồn']}")
-            st.markdown(f"**🏷️ Danh mục:** `{record_info['Danh mục']}`")
-        with col_info2:
-            st.markdown(f"**🌐 Nguồn gốc web:** `{record_info['Nguồn gốc web']}`")
-            st.markdown(f"**⭐ Độ tin cậy AI:** `{record_info['Độ tin cậy']}`")
-            st.markdown(f"**⏰ Thời gian đồng bộ:** {record_info['Thời gian cập nhật']}")
-            
-        with st.expander("🔍 Xem mã nguồn cấu trúc tệp (Structured JSON Payload)"):
-            st.json({
-                "file_meta_id": int(record_info['ID']),
-                "title": record_info['Tiêu đề bài viết / Nguồn'],
-                "category": record_info['Danh mục'],
-                "source_domain": record_info['Nguồn gốc web'],
-                "parsing_status": "Cleaned (Diacritics & Punctuation Preserved)",
-                "confidence_score": record_info['Độ tin cậy'],
-                "extracted_content_preview": f"Đã bóc tách tự động và áp dụng bộ lọc chuẩn hóa văn bản thô từ {record_info['Nguồn gốc web']}."
-            })
+    if not st.session_state.admin_logged_in:
+        password = st.text_input("Mật khẩu admin:", type="password")
+        if st.button("Đăng nhập"):
+            if password == ADMIN_PASSWORD:
+                st.session_state.admin_logged_in = True
+                st.success("Đăng nhập thành công!")
+                st.rerun()
+            else:
+                st.error("Sai mật khẩu!")
     else:
-        st.info("Không có tệp dữ liệu nào khớp với từ khóa tìm kiếm.")
+        st.success("Đã đăng nhập (Admin)")
+        if st.button("Đăng xuất"):
+            st.session_state.admin_logged_in = False
+            st.rerun()
         
-    st.divider()
-    m1, m2, m3 = st.columns(3)
-    m1.metric("Tổng bản ghi hiển thị", f"{len(filtered_df)} kết quả")
-    m2.metric("Tốc độ phản hồi trung bình", "0.04 giây")
-    m3.metric("Độ chính xác dữ liệu", "98.9%")
+        # Backup / Restore
+        data_json = json.dumps(st.session_state.articles, ensure_ascii=False, indent=2)
+        st.download_button(
+            label="Tải dữ liệu (JSON)",
+            data=data_json,
+            file_name="wiki_data.json",
+            mime="application/json"
+        )
+        uploaded = st.file_uploader("Tải lên dữ liệu JSON", type="json")
+        if uploaded is not None:
+            try:
+                new_data = json.load(uploaded)
+                if isinstance(new_data, list):
+                    st.session_state.articles = new_data
+                    st.success("Đã cập nhật dữ liệu!")
+                    st.rerun()
+            except Exception as e:
+                st.error(f"Lỗi: {e}")
 
-elif menu == "⚡ Quét Web & Làm Sạch (Live Crawler)":
-    st.title("⚡ Quét Web & Bộ Lọc Dữ Liệu Thô Thông Minh")
-    st.markdown("Nhập URL để bot tự động cào, loại bỏ hoàn toàn mã rác, định dạng thừa nhưng **giữ nguyên vẹn dấu câu và dấu tiếng Việt**.")
-    
-    target_url = st.text_input(
-        "Nhập URL trang web cần quét:", 
-        value="https://en.wikipedia.org/wiki/Artificial_intelligence",
-        key="crawler_url_input_v2"
-    )
-    
-    if st.button("🚀 Thực thi cào & Làm sạch dữ liệu", type="primary", key="btn_run_crawler_v2"):
-        progress_bar = st.progress(0)
-        status_text = st.empty()
-        
-        status_text.text("Đang kết nối tới máy chủ mục tiêu...")
-        time.sleep(0.3)
-        progress_bar.progress(30)
-        
-        fetched_title = ""
-        fetched_desc = ""
-        success_fetch = False
-        
-        try:
-            status_text.text("Đang tải mã nguồn & kích hoạt bộ lọc văn bản thô...")
-            req = urllib.request.Request(
-                target_url, 
-                headers={'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) WikifactsBot/2.0'}
-            )
-            with urllib.request.urlopen(req, timeout=6) as response:
-                html_content = response.read().decode('utf-8', errors='ignore')
-                
-                title_match = re.search(r'<title>(.*?)</title>', html_content, re.IGNORECASE | re.DOTALL)
-                if title_match:
-                    raw_title = unescape(title_match.group(1).strip())
-                    fetched_title = advanced_text_cleaner(raw_title)
-                else:
-                    fetched_title = "Không tìm thấy tiêu đề chuẩn"
-                
-                desc_match = re.search(r'<meta[^>]*name=["\']description["\'][^>]*content=["\'](.*?)["\']', html_content, re.IGNORECASE | re.DOTALL)
-                if desc_match:
-                    raw_desc = unescape(desc_match.group(1).strip())
-                    fetched_desc = advanced_text_cleaner(raw_desc)
-                else:
-                    fetched_desc = "Đã trích xuất và chuẩn hóa văn bản thô thành công."
-                
-                success_fetch = True
-        except Exception as e:
-            fetched_title = advanced_text_cleaner(f"Dữ liệu trích xuất từ miền: {target_url}")
-            fetched_desc = advanced_text_cleaner(f"Hệ thống đã làm sạch cấu trúc phân giải (Thông báo mạng: {str(e)[:40]})")
-            success_fetch = True
+# Main content
+st.title("Wiki về AI và Dữ liệu")
+st.caption("Nguồn nội dung chủ yếu từ Wikipedia. Bố cục đơn giản, dễ đọc.")
 
-        progress_bar.progress(80)
-        time.sleep(0.3)
-        progress_bar.progress(100)
-        status_text.text("✅ Hoàn thành quy trình quét và làm sạch dữ liệu thô!")
+if selected_title == "-- Chọn bài viết --":
+    st.info("👈 Hãy chọn một chủ đề từ thanh bên để xem thông tin.")
+    st.markdown("### Các chủ đề hiện có:")
+    for art in st.session_state.articles:
+        st.markdown(f"**{art['title']}**")
+        st.markdown(f"<span class='meta'>Cập nhật: {art['updated']} | Nguồn: {art['source']}</span>", unsafe_allow_html=True)
+        st.markdown("---")
+else:
+    article = next((a for a in st.session_state.articles if a["title"] == selected_title), None)
+    if article:
+        st.header(article["title"])
+        st.markdown(f"<span class='meta'>🕒 Cập nhật lần cuối: **{article['updated']}**</span>", unsafe_allow_html=True)
+        st.markdown(f"<span class='meta'>📖 Nguồn: [{article['source']}]({article['source_url']})</span>", unsafe_allow_html=True)
+        st.markdown("---")
+        st.markdown(article["content"])
         
-        st.success("Kết quả dữ liệu thô sau khi đã lọc sạch rác (vẫn bảo toàn dấu câu & tiếng Việt):")
-        st.json({
-            "url_target": target_url,
-            "status": "200 OK" if success_fetch else "Processed",
-            "cleaned_page_title": fetched_title,
-            "cleaned_description": fetched_desc,
-            "sanitization_pipeline": "HTML tags removed | Whitespace normalized | Diacritics & Punctuation preserved"
-        })
-        
-        if st.button("📥 Thêm dữ liệu đã làm sạch vào kho lưu trữ", key="btn_save_crawled_data_v2"):
-            new_id = int(df["ID"].max() + 1)
-            new_row = {
-                "ID": new_id,
-                "Tiêu đề bài viết / Nguồn": fetched_title[:60] + "...",
-                "Danh mục": "AI & Data",
-                "Nguồn gốc web": target_url.split('/')[2] if len(target_url.split('/')) > 2 else target_url,
-                "Độ tin cậy": "99.4%",
-                "Thời gian cập nhật": "Vừa làm sạch"
-            }
-            st.session_state.data_store = pd.concat([pd.DataFrame([new_row]), st.session_state.data_store], ignore_index=True)
-            st.success("🎉 Đã lưu tệp dữ liệu sạch vào hệ thống thành công!")
-
-elif menu == "📊 Báo cáo & Thống kê":
-    st.title("📊 Tổng Quan Hệ Thống & Hiệu Năng")
-    st.markdown("Số liệu tổng hợp về quy mô dữ liệu và khả năng vận hành của nền tảng.")
-    
-    c1, c2, c3, c4 = st.columns(4)
-    c1.metric("Tổng nguồn web index", f"{1240500 + len(df)}+", "Live update")
-    c2.metric("Dữ liệu cấu trúc hóa", "45.8 GB", "Live update")
-    c3.metric("Độ trễ trung bình", "42 ms", "-5ms tối ưu")
-    c4.metric("Hệ thống hoạt động", "99.99%", "Ổn định")
-    
-    st.divider()
-    
-    st.subheader("📈 Phân bổ danh mục dữ liệu trong kho lưu trữ")
-    category_counts = df["Danh mục"].value_counts().reset_index()
-    category_counts.columns = ["Danh mục", "Số lượng"]
-    st.bar_chart(category_counts, x="Danh mục", y="Số lượng", color="#1f77b4")
-
-elif menu == "🔒 Quản trị (Admin Panel)":
-    st.title("🔒 Khu Vực Quản Trị Hệ Thống (Admin)")
-    st.markdown("Đăng nhập quyền quản trị để thêm mới dữ liệu, cấu hình nguồn quét và quản lý kho lưu trữ.")
-    
-    admin_password = st.text_input(
-        "Nhập mật khẩu Admin quản trị:", 
-        type="password", 
-        placeholder="Mật khẩu...",
-        key="admin_pwd_input_v2"
-    )
-    
-    if admin_password == "admin123":
-        st.success("🔓 Đăng nhập quyền quản trị thành công!")
-        st.divider()
-        
-        st.subheader("➕ Đăng tải bản ghi dữ liệu mới lên hệ thống")
-        
-        with st.form("add_data_form_unique_v2"):
-            new_title = st.text_input("Tiêu đề bài viết / Báo cáo mới:")
-            col_a, col_b = st.columns(2)
-            with col_a:
-                new_category = st.selectbox(
-                    "Chọn danh mục bài viết:", 
-                    ["AI & Data", "Infrastructure", "Market Research", "Legal & Policy", "Finance", "DeepTech"],
-                    key="form_cat_select_v2"
-                )
-            with col_b:
-                new_source = st.text_input("Nguồn gốc web:", value="wikifacts.internal", key="form_source_input_v2")
+        # Admin edit
+        if st.session_state.admin_logged_in:
+            st.markdown("---")
+            st.subheader("✏️ Chỉnh sửa bài viết (Admin)")
+            with st.form(key=f"edit_{article['id']}"):
+                new_title = st.text_input("Tiêu đề", value=article["title"])
+                new_content = st.text_area("Nội dung", value=article["content"], height=300)
+                new_source = st.text_input("Tên nguồn", value=article["source"])
+                new_url = st.text_input("URL nguồn", value=article["source_url"])
+                new_updated = st.text_input("Ngày cập nhật (YYYY-MM-DD)", value=article["updated"])
                 
-            submitted = st.form_submit_button("📤 Đăng dữ liệu lên hệ thống Live", type="primary")
+                if st.form_submit_button("Lưu thay đổi"):
+                    article["title"] = new_title
+                    article["content"] = new_content
+                    article["source"] = new_source
+                    article["source_url"] = new_url
+                    article["updated"] = new_updated or datetime.now().strftime("%Y-%m-%d")
+                    st.success("Đã lưu thay đổi!")
+                    st.rerun()
             
-            if submitted:
-                if new_title:
-                    new_id = int(df["ID"].max() + 1)
-                    new_row = {
-                        "ID": new_id,
-                        "Tiêu đề bài viết / Nguồn": new_title,
-                        "Danh mục": new_category,
-                        "Nguồn gốc web": new_source,
-                        "Độ tin cậy": "99.5%",
-                        "Thời gian cập nhật": "Vừa xong"
-                    }
-                    st.session_state.data_store = pd.concat([pd.DataFrame([new_row]), st.session_state.data_store], ignore_index=True)
-                    st.success(f"🎉 Đã đăng thành công bài viết: '{new_title}' lên hệ thống!")
-                    st.balloons()
-                else:
-                    st.warning("Vui lòng điền tiêu đề bài viết trước khi đăng.")
-                    
-        st.divider()
-        st.subheader("📋 Quản lý toàn bộ kho dữ liệu hệ thống")
-        st.dataframe(st.session_state.data_store, use_container_width=True, hide_index=True)
-        
-    elif admin_password:
-        st.error("❌ Mật khẩu không chính xác! (Gợi ý mật khẩu demo: admin123)")
+            # Thêm bài mới
+            st.subheader("➕ Thêm bài viết mới")
+            with st.form(key="add_new"):
+                add_title = st.text_input("Tiêu đề mới")
+                add_content = st.text_area("Nội dung mới", height=200)
+                add_source = st.text_input("Nguồn", value="Wikipedia")
+                add_url = st.text_input("URL nguồn")
+                if st.form_submit_button("Thêm bài viết"):
+                    if add_title and add_content:
+                        new_id = add_title.lower().replace(" ", "_")[:20]
+                        st.session_state.articles.append({
+                            "id": new_id,
+                            "title": add_title,
+                            "content": add_content,
+                            "source": add_source,
+                            "source_url": add_url or "#",
+                            "updated": datetime.now().strftime("%Y-%m-%d")
+                        })
+                        st.success("Đã thêm bài viết!")
+                        st.rerun()
+                    else:
+                        st.warning("Cần tiêu đề và nội dung.")
     else:
-        st.info("Vui lòng nhập mật khẩu quản trị để tiếp tục. (Mật khẩu demo: `admin123`)")
+        st.error("Không tìm thấy bài viết.")
+
+st.markdown("---")
+st.caption("Ứng dụng Wiki đơn giản chạy trên Streamlit. Dữ liệu chỉnh sửa chỉ lưu trong phiên hiện tại.")
