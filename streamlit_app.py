@@ -32,7 +32,8 @@ High-profile applications of AI include advanced web search engines, chatbots, v
 Artificial intelligence was founded as an academic discipline in 1956. The field experienced multiple cycles of optimism followed by periods of disappointment and loss of funding, known as AI winters. Funding and interest increased substantially after 2012, with the use of graphics processing units (GPUs) to accelerate neural networks and deep learning.""",
         "source": "Wikipedia - Artificial intelligence",
         "source_url": "https://en.wikipedia.org/wiki/Artificial_intelligence",
-        "updated": "2026-10-10"
+        "updated": "2026-10-10",
+        "type": "article"
     },
     {
         "id": "ml",
@@ -42,7 +43,8 @@ Artificial intelligence was founded as an academic discipline in 1956. The field
 Key paradigms include supervised learning, unsupervised learning, and reinforcement learning. The term "machine learning" was coined in 1959 by Arthur Samuel. Advances in deep learning have made ML central to modern AI applications.""",
         "source": "Wikipedia - Machine learning",
         "source_url": "https://en.wikipedia.org/wiki/Machine_learning",
-        "updated": "2026-10-10"
+        "updated": "2026-10-10",
+        "type": "article"
     },
     {
         "id": "dl",
@@ -52,7 +54,8 @@ Key paradigms include supervised learning, unsupervised learning, and reinforcem
 Deep learning is a subfield of machine learning that uses neural networks with many layers to model complex patterns in data. It has driven major advances in image recognition, speech processing, and generative AI.""",
         "source": "Wikipedia - Deep learning",
         "source_url": "https://en.wikipedia.org/wiki/Deep_learning",
-        "updated": "2026-10-10"
+        "updated": "2026-10-10",
+        "type": "article"
     },
     {
         "id": "nn",
@@ -62,7 +65,8 @@ Deep learning is a subfield of machine learning that uses neural networks with m
 ANNs form the core of deep learning and excel in tasks like image recognition, speech processing, and natural language tasks.""",
         "source": "Wikipedia - Artificial neural network",
         "source_url": "https://en.wikipedia.org/wiki/Artificial_neural_network",
-        "updated": "2026-10-10"
+        "updated": "2026-10-10",
+        "type": "article"
     },
     {
         "id": "bigdata",
@@ -72,7 +76,8 @@ ANNs form the core of deep learning and excel in tasks like image recognition, s
 Big data analysis uses predictive analytics and machine learning to extract value in fields like healthcare, business, and science.""",
         "source": "Wikipedia - Big data",
         "source_url": "https://en.wikipedia.org/wiki/Big_data",
-        "updated": "2026-10-10"
+        "updated": "2026-10-10",
+        "type": "article"
     },
     {
         "id": "datascience",
@@ -82,7 +87,8 @@ Big data analysis uses predictive analytics and machine learning to extract valu
 A data scientist combines programming and statistical knowledge to extract actionable insights from data.""",
         "source": "Wikipedia - Data science",
         "source_url": "https://en.wikipedia.org/wiki/Data_science",
-        "updated": "2026-10-10"
+        "updated": "2026-10-10",
+        "type": "article"
     }
 ]
 
@@ -92,9 +98,6 @@ if "articles" not in st.session_state:
 
 if "admin_logged_in" not in st.session_state:
     st.session_state.admin_logged_in = False
-
-if "media_files" not in st.session_state:
-    st.session_state.media_files = []
 
 ADMIN_PASSWORD = "admin123"
 
@@ -144,116 +147,11 @@ with st.sidebar:
             except Exception as e:
                 st.error(f"Lỗi: {e}")
         
-        # === TẢI LÊN HÌNH & TÀI LIỆU ===
+        # === TẢI LÊN HÌNH & TÀI LIỆU VỚI TÊN MỤC RIÊNG ===
         st.markdown("---")
-        st.subheader("📎 Tải lên Hình / Tài liệu")
-        media_files = st.file_uploader(
-            "Chọn hình ảnh hoặc tài liệu",
-            type=["png", "jpg", "jpeg", "gif", "webp", "pdf", "txt", "docx", "doc", "md", "csv"],
-            accept_multiple_files=True,
-            key="media_up"
-        )
+        st.subheader("📎 Tải lên File & Đặt Tên Mục")
         
-        if media_files:
-            for file in media_files:
-                # Kiểm tra file chưa tồn tại
-                if not any(m["name"] == file.name for m in st.session_state.media_files):
-                    file_bytes = file.getvalue()
-                    st.session_state.media_files.append({
-                        "name": file.name,
-                        "type": file.type,
-                        "data": file_bytes,
-                        "uploaded_at": datetime.now().strftime("%Y-%m-%d %H:%M")
-                    })
-            st.success(f"Đã thêm {len(media_files)} file!")
-            st.rerun()
-
-# Hiển thị thư viện media (chỉ khi đã đăng nhập Admin)
-if st.session_state.admin_logged_in and st.session_state.media_files:
-    with st.expander("📁 Thư viện Hình & Tài liệu", expanded=True):
-        for i, media in enumerate(st.session_state.media_files):
-            st.write(f"**{media['name']}** — {media['uploaded_at']}")
-            
-            if media["type"] and media["type"].startswith("image/"):
-                st.image(media["data"], width=400)
-            else:
-                st.download_button(
-                    label=f"⬇️ Tải xuống {media['name']}",
-                    data=media["data"],
-                    file_name=media["name"],
-                    mime=media["type"] or "application/octet-stream",
-                    key=f"download_{i}"
-                )
-            
-            if st.button(f"Xóa {media['name']}", key=f"delete_{i}"):
-                st.session_state.media_files.pop(i)
-                st.rerun()
-            st.divider()
-
-# Main content
-st.title("Wiki về AI và Dữ liệu")
-st.caption("Nguồn nội dung chủ yếu từ Wikipedia. Bố cục đơn giản, dễ đọc.")
-
-if selected_title == "-- Chọn bài viết --":
-    st.info("👈 Hãy chọn một chủ đề từ thanh bên để xem thông tin.")
-    st.markdown("### Các chủ đề hiện có:")
-    for art in st.session_state.articles:
-        st.markdown(f"**{art['title']}**")
-        st.markdown(f"<span class='meta'>Cập nhật: {art['updated']} | Nguồn: {art['source']}</span>", unsafe_allow_html=True)
-        st.markdown("---")
-else:
-    article = next((a for a in st.session_state.articles if a["title"] == selected_title), None)
-    if article:
-        st.header(article["title"])
-        st.markdown(f"<span class='meta'>🕒 Cập nhật lần cuối: **{article['updated']}**</span>", unsafe_allow_html=True)
-        st.markdown(f"<span class='meta'>📖 Nguồn: [{article['source']}]({article['source_url']})</span>", unsafe_allow_html=True)
-        st.markdown("---")
-        st.markdown(article["content"])
-        
-        # Admin edit
-        if st.session_state.admin_logged_in:
-            st.markdown("---")
-            st.subheader("✏️ Chỉnh sửa bài viết (Admin)")
-            with st.form(key=f"edit_{article['id']}"):
-                new_title = st.text_input("Tiêu đề", value=article["title"])
-                new_content = st.text_area("Nội dung", value=article["content"], height=300)
-                new_source = st.text_input("Tên nguồn", value=article["source"])
-                new_url = st.text_input("URL nguồn", value=article["source_url"])
-                new_updated = st.text_input("Ngày cập nhật (YYYY-MM-DD)", value=article["updated"])
-                
-                if st.form_submit_button("Lưu thay đổi"):
-                    article["title"] = new_title
-                    article["content"] = new_content
-                    article["source"] = new_source
-                    article["source_url"] = new_url
-                    article["updated"] = new_updated or datetime.now().strftime("%Y-%m-%d")
-                    st.success("Đã lưu thay đổi!")
-                    st.rerun()
-            
-            # Thêm bài mới
-            st.subheader("➕ Thêm bài viết mới")
-            with st.form(key="add_new"):
-                add_title = st.text_input("Tiêu đề mới")
-                add_content = st.text_area("Nội dung mới", height=200)
-                add_source = st.text_input("Nguồn", value="Wikipedia")
-                add_url = st.text_input("URL nguồn")
-                if st.form_submit_button("Thêm bài viết"):
-                    if add_title and add_content:
-                        new_id = add_title.lower().replace(" ", "_")[:20]
-                        st.session_state.articles.append({
-                            "id": new_id,
-                            "title": add_title,
-                            "content": add_content,
-                            "source": add_source,
-                            "source_url": add_url or "#",
-                            "updated": datetime.now().strftime("%Y-%m-%d")
-                        })
-                        st.success("Đã thêm bài viết!")
-                        st.rerun()
-                    else:
-                        st.warning("Cần tiêu đề và nội dung.")
-    else:
-        st.error("Không tìm thấy bài viết.")
-
-st.markdown("---")
-st.caption("Ứng dụng Wiki đơn giản chạy trên Streamlit. Dữ liệu và file tải lên chỉ lưu trong phiên hiện tại.")
+        with st.form("upload_media_form"):
+            custom_topic_name = st.text_input("Nhập tên mục / chủ đề riêng cho file:")
+            uploaded_file = st.file_uploader(
+                "Chọn hình ảnh
