@@ -127,8 +127,15 @@ with st.sidebar:
             st.session_state.admin_logged_in = False
             st.rerun()
         
-        # Backup / Restore JSON
-        data_json = json.dumps(st.session_state.articles, ensure_ascii=False, indent=2)
+        # Backup / Restore JSON (Đã xử lý bỏ qua trường dữ liệu nhị phân bytes)
+        export_articles = []
+        for art in st.session_state.articles:
+            art_copy = art.copy()
+            if "file_data" in art_copy:
+                art_copy["file_data"] = "[binary_file_attached]"
+            export_articles.append(art_copy)
+            
+        data_json = json.dumps(export_articles, ensure_ascii=False, indent=2)
         st.download_button(
             label="Tải dữ liệu bài viết (JSON)",
             data=data_json,
