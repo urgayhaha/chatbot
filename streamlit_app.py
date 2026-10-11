@@ -42,7 +42,7 @@ def make_id(title):
 if not st.session_state.admin_logged_in:
     col1, col2, col3 = st.columns([1, 1.1, 1])
     with col2:
-        st.markdown("<h1 style='text-align:center;'>🔐 Đăng nhập Admin</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align:center;'> Đăng nhập Admin</h1>", unsafe_allow_html=True)
         with st.form("login_form"):
             username = st.text_input("Tài khoản", value="admin")
             password = st.text_input("Mật khẩu", type="password")
@@ -86,7 +86,7 @@ with col_btn:
                 accept_multiple_files=True,
                 label_visibility="collapsed"
             )
-            st.markdown("<p style='font-size:0.8em; color:#666; margin-top:-5px; margin-bottom:10px;'>tối đa 1GB mỗi file</p>", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:0.8em; color:#666; margin-top:-5px; margin-bottom:10px >", unsafe_allow_html=True)
             
             if st.form_submit_button("Tải lên"):
                 if files:
