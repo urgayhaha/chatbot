@@ -8,24 +8,30 @@ st.set_page_config(page_title="Wiki AI & Data", page_icon="📚", layout="wide")
 st.markdown("""
 <style>
     .main { background-color: #f8f9fa; }
-    h1 { color: #2c3e50; }
+    h1 { color: #2c3e50; text-align: center; margin-top: -20px; }
     .meta { color: #7f8c8d; font-size: 0.9em; }
     div.stFormSubmitButton > button {
         background-color: #0066cc !important;
         color: white !important;
     }
-    /* Khung menu bên phải */
+    /* Ẩn khung trắng thừa và thu nhỏ menu */
     .menu-box {
         background: white;
-        border: 1px solid #ddd;
-        border-radius: 12px;
-        padding: 16px;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
-        margin-top: 8px;
+        border: 1px solid #e0e0e0;
+        border-radius: 10px;
+        padding: 12px 14px;
+        box-shadow: 0 1px 6px rgba(0,0,0,0.06);
+        max-width: 260px;
+        margin-left: auto;
     }
-    /* Thu nhỏ ô nhập */
-    .stTextInput > div > div > input {
-        max-width: 280px;
+    /* Thu nhỏ selectbox chọn chủ đề */
+    .stSelectbox > div > div {
+        max-width: 420px;
+        margin: 0 auto;
+    }
+    /* Đưa icon mắt mật khẩu sang phải */
+    .stTextInput input[type="password"] {
+        padding-right: 40px;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -44,9 +50,9 @@ def make_id(title):
 
 # ==================== ĐĂNG NHẬP (chính giữa) ====================
 if not st.session_state.admin_logged_in:
-    col1, col2, col3 = st.columns([1, 1.2, 1])
+    col1, col2, col3 = st.columns([1, 1.1, 1])
     with col2:
-        st.title("🔐 Đăng nhập Admin")
+        st.markdown("<h1 style='text-align:center;'>🔐 Đăng nhập Admin</h1>", unsafe_allow_html=True)
         with st.form("login_form"):
             username = st.text_input("Tài khoản", value="admin")
             password = st.text_input("Mật khẩu", type="password")
@@ -58,34 +64,34 @@ if not st.session_state.admin_logged_in:
                     st.error("Sai tài khoản hoặc mật khẩu!")
     st.stop()
 
-# ==================== THANH TRÊN + MENU 3 GẠCH ====================
-top_left, top_right = st.columns([8, 1])
-with top_left:
-    st.title("Wiki về AI và Dữ liệu")
-with top_right:
-    if st.button("☰", help="Menu", key="menu_btn"):
+# ==================== TIÊU ĐỀ + MENU ☰ (sát phải) ====================
+st.markdown("<h1 style='text-align:center; margin-top:10px;'>Wiki về AI và Dữ liệu</h1>", unsafe_allow_html=True)
+
+# Nút menu sát phải
+_, menu_btn_col = st.columns([12, 1])
+with menu_btn_col:
+    if st.button("☰", key="menu_toggle"):
         st.session_state.show_menu = not st.session_state.show_menu
 
 # Menu hiện bên phải, dưới nút ☰
 if st.session_state.show_menu:
-    _, menu_col = st.columns([6, 2])
+    _, menu_col = st.columns([8, 2.2])
     with menu_col:
         st.markdown('<div class="menu-box">', unsafe_allow_html=True)
         st.markdown("**Tài khoản**")
         st.success("Đã đăng nhập (Admin)")
-        if st.button("Đăng xuất", key="logout_btn"):
+        if st.button("Đăng xuất", key="logout"):
             st.session_state.admin_logged_in = False
             st.rerun()
 
         st.markdown("---")
         st.markdown("**Tải tệp lên**")
         with st.form("upload_form", clear_on_submit=True):
-            ten_muc = st.text_input("Tên mục mới:", key="ten_muc")
+            ten_muc = st.text_input("Tên mục mới:")
             files = st.file_uploader(
                 "Chọn file",
                 type=["json", "png", "jpg", "jpeg", "pdf", "txt", "docx", "md"],
-                accept_multiple_files=True,
-                key="file_up"
+                accept_multiple_files=True
             )
             if st.form_submit_button("Tải lên"):
                 if files:
@@ -127,10 +133,14 @@ if st.session_state.show_menu:
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# ==================== NỘI DUNG CHÍNH ====================
-titles = [a.get("title", "Không tiêu đề") for a in st.session_state.articles]
-selected = st.selectbox("Chọn chủ đề:", ["-- Chọn bài viết --"] + titles)
+# ==================== CHỌN CHỦ ĐỀ (thu nhỏ + căn giữa) ====================
+st.markdown("<br>", unsafe_allow_html=True)
+_, center_col, _ = st.columns([1, 2, 1])
+with center_col:
+    titles = [a.get("title", "Không tiêu đề") for a in st.session_state.articles]
+    selected = st.selectbox("Chọn chủ đề:", ["-- Chọn bài viết --"] + titles)
 
+# ==================== NỘI DUNG ====================
 if selected == "-- Chọn bài viết --":
     st.info("Chọn một chủ đề để xem.")
     for a in st.session_state.articles:
@@ -160,7 +170,7 @@ else:
             st.subheader("Chỉnh sửa")
             with st.form(f"edit_{art.get('id')}"):
                 new_title = st.text_input("Tiêu đề", value=art.get("title", ""))
-                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=200)
+                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=180)
                 if st.form_submit_button("Lưu"):
                     art["title"] = new_title
                     art["content"] = new_content
