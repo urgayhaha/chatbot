@@ -15,6 +15,13 @@ st.markdown("""
         color: white !important;
         width: 100%;
     }
+    /* Style cho menu 3 gạch */
+    .menu-btn {
+        font-size: 28px;
+        cursor: pointer;
+        float: right;
+        margin-top: -10px;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -24,98 +31,100 @@ if "admin_logged_in" not in st.session_state:
 if "articles" not in st.session_state:
     st.session_state.articles = []
 
+if "show_menu" not in st.session_state:
+    st.session_state.show_menu = False
+
 ADMIN_PASSWORD = "admin123"
 
 def make_id(title):
     return hashlib.md5((title + str(datetime.now().timestamp())).encode()).hexdigest()[:10]
 
-# ==================== MÀN HÌNH ĐĂNG NHẬP ====================
+# ==================== ĐĂNG NHẬP ====================
 if not st.session_state.admin_logged_in:
     st.title("🔐 Đăng nhập Admin")
-    st.markdown("Vui lòng đăng nhập để vào Wiki")
-
     with st.form("login_form"):
         username = st.text_input("Tài khoản", value="admin")
         password = st.text_input("Mật khẩu", type="password")
-        submitted = st.form_submit_button("Đăng nhập")
-
-        if submitted:
+        if st.form_submit_button("Đăng nhập"):
             if username == "admin" and password == ADMIN_PASSWORD:
                 st.session_state.admin_logged_in = True
-                st.success("Đăng nhập thành công!")
                 st.rerun()
             else:
                 st.error("Sai tài khoản hoặc mật khẩu!")
-
     st.stop()
 
-# ==================== NỘI DUNG WIKI (sau khi đăng nhập) ====================
-with st.sidebar:
-    st.title("Wiki AI & Data")
-    st.success("Đã đăng nhập (Admin)")
-    if st.button("Đăng xuất"):
-        st.session_state.admin_logged_in = False
-        st.rerun()
+# ==================== THANH TRÊN CÙNG (3 GẠCH) ====================
+col1, col2 = st.columns([10, 1])
+with col1:
+    st.title("Wiki về AI và Dữ liệu")
+with col2:
+    if st.button("☰", help="Menu"):
+        st.session_state.show_menu = not st.session_state.show_menu
 
-    st.markdown("---")
-    titles = [a.get("title", "Không tiêu đề") for a in st.session_state.articles]
-    selected = st.selectbox("Chọn chủ đề:", ["-- Chọn bài viết --"] + titles)
-
-    st.markdown("---")
-    st.subheader("Tải tệp lên - Upload")
-
-    with st.form("upload_form", clear_on_submit=True):
-        ten_muc = st.text_input("Nhập tên mục / chủ đề mới:")
-        files = st.file_uploader(
-            "Chọn file",
-            type=["json", "png", "jpg", "jpeg", "pdf", "txt", "docx", "md"],
-            accept_multiple_files=True
-        )
-        if st.form_submit_button("Tải lên") and files:
-            json_files = [f for f in files if f.name.lower().endswith(".json")]
-            other_files = [f for f in files if not f.name.lower().endswith(".json")]
-
-            for jf in json_files:
-                try:
-                    data = json.load(jf)
-                    if isinstance(data, list):
-                        for item in data:
-                            if "id" not in item:
-                                item["id"] = make_id(item.get("title", "item"))
-                        st.session_state.articles = data
-                        st.success("Đã tải JSON thành công")
-                except:
-                    st.error("Lỗi đọc JSON")
-
-            if other_files and ten_muc.strip():
-                payload = []
-                for f in other_files:
-                    payload.append({
-                        "file_name": f.name,
-                        "file_type": f.type or "",
-                        "file_data": f.getvalue()
-                    })
-                st.session_state.articles.append({
-                    "id": make_id(ten_muc),
-                    "title": ten_muc.strip(),
-                    "source": "Admin",
-                    "source_url": "#",
-                    "updated": datetime.now().strftime("%Y-%m-%d"),
-                    "type": "multi_media",
-                    "files_list": payload
-                })
-                st.success(f"Đã tạo mục: {ten_muc.strip()}")
-            elif other_files:
-                st.warning("Bạn phải nhập tên mục.")
-
+# Menu hiện ra khi bấm 3 gạch
+if st.session_state.show_menu:
+    with st.container():
+        st.markdown("---")
+        st.subheader("Tài khoản")
+        st.success("Đã đăng nhập (Admin)")
+        if st.button("Đăng xuất"):
+            st.session_state.admin_logged_in = False
             st.rerun()
 
-# Nội dung chính
-st.title("Wiki về AI và Dữ liệu")
-st.caption("Đã đăng nhập. Nguồn nội dung chủ yếu từ Wikipedia.")
+        st.markdown("---")
+        st.subheader("Tải tệp lên")
+        with st.form("upload_form", clear_on_submit=True):
+            ten_muc = st.text_input("Nhập tên mục / chủ đề mới:")
+            files = st.file_uploader(
+                "Chọn file",
+                type=["json", "png", "jpg", "jpeg", "pdf", "txt", "docx", "md"],
+                accept_multiple_files=True
+            )
+            if st.form_submit_button("Tải lên") and files:
+                json_files = [f for f in files if f.name.lower().endswith(".json")]
+                other_files = [f for f in files if not f.name.lower().endswith(".json")]
+
+                for jf in json_files:
+                    try:
+                        data = json.load(jf)
+                        if isinstance(data, list):
+                            for item in data:
+                                if "id" not in item:
+                                    item["id"] = make_id(item.get("title", "item"))
+                            st.session_state.articles = data
+                            st.success("Đã tải JSON thành công")
+                    except:
+                        st.error("Lỗi đọc JSON")
+
+                if other_files and ten_muc.strip():
+                    payload = []
+                    for f in other_files:
+                        payload.append({
+                            "file_name": f.name,
+                            "file_type": f.type or "",
+                            "file_data": f.getvalue()
+                        })
+                    st.session_state.articles.append({
+                        "id": make_id(ten_muc),
+                        "title": ten_muc.strip(),
+                        "source": "Admin",
+                        "source_url": "#",
+                        "updated": datetime.now().strftime("%Y-%m-%d"),
+                        "type": "multi_media",
+                        "files_list": payload
+                    })
+                    st.success(f"Đã tạo mục: {ten_muc.strip()}")
+                elif other_files:
+                    st.warning("Bạn phải nhập tên mục.")
+                st.rerun()
+        st.markdown("---")
+
+# ==================== NỘI DUNG CHÍNH ====================
+titles = [a.get("title", "Không tiêu đề") for a in st.session_state.articles]
+selected = st.selectbox("Chọn chủ đề:", ["-- Chọn bài viết --"] + titles)
 
 if selected == "-- Chọn bài viết --":
-    st.info("Chọn một chủ đề ở bên trái.")
+    st.info("Chọn một chủ đề để xem.")
     for a in st.session_state.articles:
         st.markdown(f"**{a.get('title')}**")
         st.caption(f"Cập nhật: {a.get('updated', '')}")
