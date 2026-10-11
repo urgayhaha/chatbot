@@ -8,30 +8,26 @@ st.set_page_config(page_title="Wiki AI & Data", page_icon="📚", layout="wide")
 st.markdown("""
 <style>
     .main { background-color: #f8f9fa; }
-    h1 { color: #2c3e50; text-align: center; margin-top: -20px; }
+    h1 { color: #2c3e50; text-align: center; margin-top: 0px; margin-bottom: 8px; }
     .meta { color: #7f8c8d; font-size: 0.9em; }
     div.stFormSubmitButton > button {
         background-color: #0066cc !important;
         color: white !important;
     }
-    /* Ẩn khung trắng thừa và thu nhỏ menu */
     .menu-box {
         background: white;
         border: 1px solid #e0e0e0;
         border-radius: 10px;
         padding: 12px 14px;
         box-shadow: 0 1px 6px rgba(0,0,0,0.06);
-        max-width: 260px;
+        max-width: 250px;
         margin-left: auto;
+        margin-top: 4px;
     }
-    /* Thu nhỏ selectbox chọn chủ đề */
-    .stSelectbox > div > div {
-        max-width: 420px;
-        margin: 0 auto;
-    }
-    /* Đưa icon mắt mật khẩu sang phải */
-    .stTextInput input[type="password"] {
-        padding-right: 40px;
+    /* Thu nhỏ và căn giữa select */
+    div[data-testid="stSelectbox"] {
+        max-width: 380px;
+        margin: 0 auto 12px auto;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -48,7 +44,7 @@ ADMIN_PASSWORD = "admin123"
 def make_id(title):
     return hashlib.md5((title + str(datetime.now().timestamp())).encode()).hexdigest()[:10]
 
-# ==================== ĐĂNG NHẬP (chính giữa) ====================
+# ==================== ĐĂNG NHẬP ====================
 if not st.session_state.admin_logged_in:
     col1, col2, col3 = st.columns([1, 1.1, 1])
     with col2:
@@ -64,23 +60,23 @@ if not st.session_state.admin_logged_in:
                     st.error("Sai tài khoản hoặc mật khẩu!")
     st.stop()
 
-# ==================== TIÊU ĐỀ + MENU ☰ (sát phải) ====================
-st.markdown("<h1 style='text-align:center; margin-top:10px;'>Wiki về AI và Dữ liệu</h1>", unsafe_allow_html=True)
+# ==================== TIÊU ĐỀ + MENU ====================
+st.markdown("<h1 style='text-align:center;'>Wiki về AI và Dữ liệu</h1>", unsafe_allow_html=True)
 
-# Nút menu sát phải
-_, menu_btn_col = st.columns([12, 1])
-with menu_btn_col:
-    if st.button("☰", key="menu_toggle"):
+# Nút ☰ sát phải
+_, btn_col = st.columns([15, 1])
+with btn_col:
+    if st.button("☰", key="menu_btn"):
         st.session_state.show_menu = not st.session_state.show_menu
 
-# Menu hiện bên phải, dưới nút ☰
+# Menu bên phải
 if st.session_state.show_menu:
-    _, menu_col = st.columns([8, 2.2])
+    _, menu_col = st.columns([9, 2])
     with menu_col:
         st.markdown('<div class="menu-box">', unsafe_allow_html=True)
         st.markdown("**Tài khoản**")
         st.success("Đã đăng nhập (Admin)")
-        if st.button("Đăng xuất", key="logout"):
+        if st.button("Đăng xuất"):
             st.session_state.admin_logged_in = False
             st.rerun()
 
@@ -133,20 +129,19 @@ if st.session_state.show_menu:
                     st.rerun()
         st.markdown('</div>', unsafe_allow_html=True)
 
-# ==================== CHỌN CHỦ ĐỀ (thu nhỏ + căn giữa) ====================
-st.markdown("<br>", unsafe_allow_html=True)
-_, center_col, _ = st.columns([1, 2, 1])
-with center_col:
-    titles = [a.get("title", "Không tiêu đề") for a in st.session_state.articles]
-    selected = st.selectbox("Chọn chủ đề:", ["-- Chọn bài viết --"] + titles)
+# ==================== CHỌN CHỦ ĐỀ (lên cao, căn giữa, bỏ label dài) ====================
+titles = [a.get("title", "Không tiêu đề") for a in st.session_state.articles]
+selected = st.selectbox(" ", ["-- Chọn bài viết --"] + titles, label_visibility="collapsed")
 
 # ==================== NỘI DUNG ====================
 if selected == "-- Chọn bài viết --":
-    st.info("Chọn một chủ đề để xem.")
-    for a in st.session_state.articles:
-        st.markdown(f"**{a.get('title')}**")
-        st.caption(f"Cập nhật: {a.get('updated', '')}")
-        st.markdown("---")
+    if st.session_state.articles:
+        for a in st.session_state.articles:
+            st.markdown(f"**{a.get('title')}**")
+            st.caption(f"Cập nhật: {a.get('updated', '')}")
+            st.markdown("---")
+    else:
+        st.caption("Chưa có bài viết nào.")
 else:
     art = next((a for a in st.session_state.articles if a.get("title") == selected), None)
     if art:
