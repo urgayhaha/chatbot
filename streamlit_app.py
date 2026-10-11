@@ -14,20 +14,10 @@ st.markdown("""
         background-color: #0066cc !important;
         color: white !important;
     }
-    .menu-box {
-        background: white;
-        border: 1px solid #e0e0e0;
-        border-radius: 10px;
-        padding: 12px 14px;
-        box-shadow: 0 1px 6px rgba(0,0,0,0.06);
-        max-width: 250px;
-        margin-left: auto;
-        margin-top: 4px;
-    }
     /* Thu nhỏ và căn giữa select */
     div[data-testid="stSelectbox"] {
         max-width: 380px;
-        margin: 0 auto 12px auto;
+        margin: 0 auto 16px auto;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -69,67 +59,66 @@ with btn_col:
     if st.button("☰", key="menu_btn"):
         st.session_state.show_menu = not st.session_state.show_menu
 
-# Menu bên phải
+# Menu bên phải (dùng container chuẩn để không bị lệch giao diện)
 if st.session_state.show_menu:
     _, menu_col = st.columns([9, 2])
     with menu_col:
-        st.markdown('<div class="menu-box">', unsafe_allow_html=True)
-        st.markdown("**Tài khoản**")
-        st.success("Đã đăng nhập (Admin)")
-        if st.button("Đăng xuất"):
-            st.session_state.admin_logged_in = False
-            st.rerun()
+        with st.container(border=True):
+            st.markdown("**Tài khoản**")
+            st.success("Đã đăng nhập (Admin)")
+            if st.button("Đăng xuất"):
+                st.session_state.admin_logged_in = False
+                st.rerun()
 
-        st.markdown("---")
-        st.markdown("**Tải tệp lên**")
-        with st.form("upload_form", clear_on_submit=True):
-            ten_muc = st.text_input("Tên mục mới:")
-            files = st.file_uploader(
-                "Chọn file",
-                type=["json", "png", "jpg", "jpeg", "pdf", "txt", "docx", "md"],
-                accept_multiple_files=True
-            )
-            if st.form_submit_button("Tải lên"):
-                if files:
-                    json_files = [f for f in files if f.name.lower().endswith(".json")]
-                    other_files = [f for f in files if not f.name.lower().endswith(".json")]
+            st.markdown("---")
+            st.markdown("**Tải tệp lên**")
+            with st.form("upload_form", clear_on_submit=True):
+                ten_muc = st.text_input("Tên mục mới:")
+                files = st.file_uploader(
+                    "Chọn file",
+                    type=["json", "png", "jpg", "jpeg", "pdf", "txt", "docx", "md"],
+                    accept_multiple_files=True
+                )
+                if st.form_submit_button("Tải lên"):
+                    if files:
+                        json_files = [f for f in files if f.name.lower().endswith(".json")]
+                        other_files = [f for f in files if not f.name.lower().endswith(".json")]
 
-                    for jf in json_files:
-                        try:
-                            data = json.load(jf)
-                            if isinstance(data, list):
-                                for item in data:
-                                    if "id" not in item:
-                                        item["id"] = make_id(item.get("title", "item"))
-                                st.session_state.articles = data
-                                st.success("Đã tải JSON")
-                        except:
-                            st.error("Lỗi JSON")
+                        for jf in json_files:
+                            try:
+                                data = json.load(jf)
+                                if isinstance(data, list):
+                                    for item in data:
+                                        if "id" not in item:
+                                            item["id"] = make_id(item.get("title", "item"))
+                                    st.session_state.articles = data
+                                    st.success("Đã tải JSON")
+                            except:
+                                st.error("Lỗi JSON")
 
-                    if other_files and ten_muc.strip():
-                        payload = []
-                        for f in other_files:
-                            payload.append({
-                                "file_name": f.name,
-                                "file_type": f.type or "",
-                                "file_data": f.getvalue()
+                        if other_files and ten_muc.strip():
+                            payload = []
+                            for f in other_files:
+                                payload.append({
+                                    "file_name": f.name,
+                                    "file_type": f.type or "",
+                                    "file_data": f.getvalue()
+                                })
+                            st.session_state.articles.append({
+                                "id": make_id(ten_muc),
+                                "title": ten_muc.strip(),
+                                "source": "Admin",
+                                "source_url": "#",
+                                "updated": datetime.now().strftime("%Y-%m-%d"),
+                                "type": "multi_media",
+                                "files_list": payload
                             })
-                        st.session_state.articles.append({
-                            "id": make_id(ten_muc),
-                            "title": ten_muc.strip(),
-                            "source": "Admin",
-                            "source_url": "#",
-                            "updated": datetime.now().strftime("%Y-%m-%d"),
-                            "type": "multi_media",
-                            "files_list": payload
-                        })
-                        st.success(f"Đã tạo: {ten_muc.strip()}")
-                    elif other_files:
-                        st.warning("Nhập tên mục trước.")
-                    st.rerun()
-        st.markdown('</div>', unsafe_allow_html=True)
+                            st.success(f"Đã tạo: {ten_muc.strip()}")
+                        elif other_files:
+                            st.warning("Nhập tên mục trước.")
+                        st.rerun()
 
-# ==================== CHỌN CHỦ ĐỀ (lên cao, căn giữa, bỏ label dài) ====================
+# ==================== CHỌN CHỦ ĐỀ (Đã đưa lên ngay dưới tiêu đề) ====================
 titles = [a.get("title", "Không tiêu đề") for a in st.session_state.articles]
 selected = st.selectbox(" ", ["-- Chọn bài viết --"] + titles, label_visibility="collapsed")
 
@@ -140,8 +129,6 @@ if selected == "-- Chọn bài viết --":
             st.markdown(f"**{a.get('title')}**")
             st.caption(f"Cập nhật: {a.get('updated', '')}")
             st.markdown("---")
-    else:
-        st.caption("Chưa có bài viết nào.")
 else:
     art = next((a for a in st.session_state.articles if a.get("title") == selected), None)
     if art:
@@ -172,5 +159,3 @@ else:
                     art["updated"] = datetime.now().strftime("%Y-%m-%d")
                     st.success("Đã lưu")
                     st.rerun()
-
-st.caption("Dữ liệu chỉ tồn tại trong phiên làm việc hiện tại.")
