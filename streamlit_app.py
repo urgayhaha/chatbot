@@ -2,7 +2,6 @@ import streamlit as st
 import json
 from datetime import datetime
 import hashlib
-import random
 
 st.set_page_config(page_title="Wiki AI & Data", page_icon="📚", layout="wide")
 
@@ -18,15 +17,6 @@ st.markdown("""
     }
 </style>
 """, unsafe_allow_html=True)
-
-# Tạo CAPTCHA đơn giản (phép tính)
-def generate_captcha():
-    a = random.randint(1, 10)
-    b = random.randint(1, 10)
-    return a, b, a + b
-
-if "captcha" not in st.session_state:
-    st.session_state.captcha = generate_captcha()
 
 if "admin_logged_in" not in st.session_state:
     st.session_state.admin_logged_in = False
@@ -47,33 +37,17 @@ if not st.session_state.admin_logged_in:
     with st.form("login_form"):
         username = st.text_input("Tài khoản", value="admin")
         password = st.text_input("Mật khẩu", type="password")
-
-        # CAPTCHA
-        a, b, correct = st.session_state.captcha
-        st.markdown(f"**CAPTCHA:** {a} + {b} = ?")
-        captcha_input = st.text_input("Nhập kết quả phép tính")
-
         submitted = st.form_submit_button("Đăng nhập")
 
         if submitted:
             if username == "admin" and password == ADMIN_PASSWORD:
-                try:
-                    if int(captcha_input) == correct:
-                        st.session_state.admin_logged_in = True
-                        st.session_state.captcha = generate_captcha()  # tạo mới cho lần sau
-                        st.success("Đăng nhập thành công!")
-                        st.rerun()
-                    else:
-                        st.error("CAPTCHA sai!")
-                        st.session_state.captcha = generate_captcha()
-                except:
-                    st.error("Vui lòng nhập số cho CAPTCHA")
-                    st.session_state.captcha = generate_captcha()
+                st.session_state.admin_logged_in = True
+                st.success("Đăng nhập thành công!")
+                st.rerun()
             else:
                 st.error("Sai tài khoản hoặc mật khẩu!")
-                st.session_state.captcha = generate_captcha()
 
-    st.stop()  # Dừng lại, không cho xem nội dung bên dưới
+    st.stop()
 
 # ==================== NỘI DUNG WIKI (sau khi đăng nhập) ====================
 with st.sidebar:
