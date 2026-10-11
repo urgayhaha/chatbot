@@ -54,7 +54,6 @@ with col_select:
     selected = st.selectbox(" ", ["-- Chọn bài viết --"] + titles, label_visibility="collapsed")
 
 with col_btn:
-    # Dùng st.popover để menu hiển thị dạng nổi, KHÔNG làm đẩy khung bên dưới
     with st.popover("☰"):
         st.markdown("**Tài khoản**")
         st.success("Đã đăng nhập (Admin)")
@@ -65,7 +64,8 @@ with col_btn:
         st.markdown("---")
         st.markdown("**Tải tệp lên**")
         with st.form("upload_form", clear_on_submit=True):
-            ten_muc = st.text_input("Tên mục mới:")
+            # Đã tăng max_chars lên 1000
+            ten_muc = st.text_input("Tên mục mới:", max_chars=1000)
             files = st.file_uploader(
                 "Chọn file",
                 type=["json", "png", "jpg", "jpeg", "pdf", "txt", "docx", "md"],
@@ -139,8 +139,9 @@ else:
         if art.get("type") != "multi_media":
             st.subheader("Chỉnh sửa")
             with st.form(f"edit_{art.get('id')}"):
-                new_title = st.text_input("Tiêu đề", value=art.get("title", ""))
-                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=180)
+                # Đã tăng max_chars lên 1000 cho tiêu đề và nội dung
+                new_title = st.text_input("Tiêu đề", value=art.get("title", ""), max_chars=1000)
+                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=200, max_chars=1000)
                 if st.form_submit_button("Lưu"):
                     art["title"] = new_title
                     art["content"] = new_content
