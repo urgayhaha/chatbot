@@ -13,24 +13,27 @@ st.markdown("""
     div.stFormSubmitButton > button {
         background-color: #0066cc !important;
         color: white !important;
-        width: 100%;
     }
-    /* Style cho menu 3 gạch */
-    .menu-btn {
-        font-size: 28px;
-        cursor: pointer;
-        float: right;
-        margin-top: -10px;
+    /* Khung menu bên phải */
+    .menu-box {
+        background: white;
+        border: 1px solid #ddd;
+        border-radius: 12px;
+        padding: 16px;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        margin-top: 8px;
+    }
+    /* Thu nhỏ ô nhập */
+    .stTextInput > div > div > input {
+        max-width: 280px;
     }
 </style>
 """, unsafe_allow_html=True)
 
 if "admin_logged_in" not in st.session_state:
     st.session_state.admin_logged_in = False
-
 if "articles" not in st.session_state:
     st.session_state.articles = []
-
 if "show_menu" not in st.session_state:
     st.session_state.show_menu = False
 
@@ -39,85 +42,90 @@ ADMIN_PASSWORD = "admin123"
 def make_id(title):
     return hashlib.md5((title + str(datetime.now().timestamp())).encode()).hexdigest()[:10]
 
-# ==================== ĐĂNG NHẬP ====================
+# ==================== ĐĂNG NHẬP (chính giữa) ====================
 if not st.session_state.admin_logged_in:
-    st.title("🔐 Đăng nhập Admin")
-    with st.form("login_form"):
-        username = st.text_input("Tài khoản", value="admin")
-        password = st.text_input("Mật khẩu", type="password")
-        if st.form_submit_button("Đăng nhập"):
-            if username == "admin" and password == ADMIN_PASSWORD:
-                st.session_state.admin_logged_in = True
-                st.rerun()
-            else:
-                st.error("Sai tài khoản hoặc mật khẩu!")
+    col1, col2, col3 = st.columns([1, 1.2, 1])
+    with col2:
+        st.title("🔐 Đăng nhập Admin")
+        with st.form("login_form"):
+            username = st.text_input("Tài khoản", value="admin")
+            password = st.text_input("Mật khẩu", type="password")
+            if st.form_submit_button("Đăng nhập", use_container_width=True):
+                if username == "admin" and password == ADMIN_PASSWORD:
+                    st.session_state.admin_logged_in = True
+                    st.rerun()
+                else:
+                    st.error("Sai tài khoản hoặc mật khẩu!")
     st.stop()
 
-# ==================== THANH TRÊN CÙNG (3 GẠCH) ====================
-col1, col2 = st.columns([10, 1])
-with col1:
+# ==================== THANH TRÊN + MENU 3 GẠCH ====================
+top_left, top_right = st.columns([8, 1])
+with top_left:
     st.title("Wiki về AI và Dữ liệu")
-with col2:
-    if st.button("☰", help="Menu"):
+with top_right:
+    if st.button("☰", help="Menu", key="menu_btn"):
         st.session_state.show_menu = not st.session_state.show_menu
 
-# Menu hiện ra khi bấm 3 gạch
+# Menu hiện bên phải, dưới nút ☰
 if st.session_state.show_menu:
-    with st.container():
-        st.markdown("---")
-        st.subheader("Tài khoản")
+    _, menu_col = st.columns([6, 2])
+    with menu_col:
+        st.markdown('<div class="menu-box">', unsafe_allow_html=True)
+        st.markdown("**Tài khoản**")
         st.success("Đã đăng nhập (Admin)")
-        if st.button("Đăng xuất"):
+        if st.button("Đăng xuất", key="logout_btn"):
             st.session_state.admin_logged_in = False
             st.rerun()
 
         st.markdown("---")
-        st.subheader("Tải tệp lên")
+        st.markdown("**Tải tệp lên**")
         with st.form("upload_form", clear_on_submit=True):
-            ten_muc = st.text_input("Nhập tên mục / chủ đề mới:")
+            ten_muc = st.text_input("Tên mục mới:", key="ten_muc")
             files = st.file_uploader(
                 "Chọn file",
                 type=["json", "png", "jpg", "jpeg", "pdf", "txt", "docx", "md"],
-                accept_multiple_files=True
+                accept_multiple_files=True,
+                key="file_up"
             )
-            if st.form_submit_button("Tải lên") and files:
-                json_files = [f for f in files if f.name.lower().endswith(".json")]
-                other_files = [f for f in files if not f.name.lower().endswith(".json")]
+            if st.form_submit_button("Tải lên"):
+                if files:
+                    json_files = [f for f in files if f.name.lower().endswith(".json")]
+                    other_files = [f for f in files if not f.name.lower().endswith(".json")]
 
-                for jf in json_files:
-                    try:
-                        data = json.load(jf)
-                        if isinstance(data, list):
-                            for item in data:
-                                if "id" not in item:
-                                    item["id"] = make_id(item.get("title", "item"))
-                            st.session_state.articles = data
-                            st.success("Đã tải JSON thành công")
-                    except:
-                        st.error("Lỗi đọc JSON")
+                    for jf in json_files:
+                        try:
+                            data = json.load(jf)
+                            if isinstance(data, list):
+                                for item in data:
+                                    if "id" not in item:
+                                        item["id"] = make_id(item.get("title", "item"))
+                                st.session_state.articles = data
+                                st.success("Đã tải JSON")
+                        except:
+                            st.error("Lỗi JSON")
 
-                if other_files and ten_muc.strip():
-                    payload = []
-                    for f in other_files:
-                        payload.append({
-                            "file_name": f.name,
-                            "file_type": f.type or "",
-                            "file_data": f.getvalue()
+                    if other_files and ten_muc.strip():
+                        payload = []
+                        for f in other_files:
+                            payload.append({
+                                "file_name": f.name,
+                                "file_type": f.type or "",
+                                "file_data": f.getvalue()
+                            })
+                        st.session_state.articles.append({
+                            "id": make_id(ten_muc),
+                            "title": ten_muc.strip(),
+                            "source": "Admin",
+                            "source_url": "#",
+                            "updated": datetime.now().strftime("%Y-%m-%d"),
+                            "type": "multi_media",
+                            "files_list": payload
                         })
-                    st.session_state.articles.append({
-                        "id": make_id(ten_muc),
-                        "title": ten_muc.strip(),
-                        "source": "Admin",
-                        "source_url": "#",
-                        "updated": datetime.now().strftime("%Y-%m-%d"),
-                        "type": "multi_media",
-                        "files_list": payload
-                    })
-                    st.success(f"Đã tạo mục: {ten_muc.strip()}")
-                elif other_files:
-                    st.warning("Bạn phải nhập tên mục.")
-                st.rerun()
-        st.markdown("---")
+                        st.success(f"Đã tạo: {ten_muc.strip()}")
+                    elif other_files:
+                        st.warning("Nhập tên mục trước.")
+                    st.rerun()
+        st.markdown('</div>', unsafe_allow_html=True)
 
 # ==================== NỘI DUNG CHÍNH ====================
 titles = [a.get("title", "Không tiêu đề") for a in st.session_state.articles]
@@ -152,7 +160,7 @@ else:
             st.subheader("Chỉnh sửa")
             with st.form(f"edit_{art.get('id')}"):
                 new_title = st.text_input("Tiêu đề", value=art.get("title", ""))
-                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=250)
+                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=200)
                 if st.form_submit_button("Lưu"):
                     art["title"] = new_title
                     art["content"] = new_content
