@@ -1,0 +1,48 @@
+import streamlit as st
+from datetime import datetime
+
+st.set_page_config(page_title="AI Chat", page_icon="🤖", layout="wide")
+
+st.title("🤖 AI Chat đơn giản")
+st.caption("Đây là phiên bản demo. Bạn có thể kết nối API thật (Groq, OpenAI...) để mạnh hơn.")
+
+# Lưu lịch sử chat
+if "messages" not in st.session_state:
+    st.session_state.messages = [
+        {"role": "assistant", "content": "Xin chào! Mình là AI. Bạn muốn hỏi gì về AI, dữ liệu hoặc chủ đề khác?"}
+    ]
+
+# Hiển thị tin nhắn cũ
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
+# Ô nhập tin nhắn
+if prompt := st.chat_input("Nhập câu hỏi của bạn..."):
+    # Thêm tin nhắn của user
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    # Phản hồi đơn giản của AI (bạn có thể thay bằng API thật)
+    with st.chat_message("assistant"):
+        if "ai" in prompt.lower() or "trí tuệ nhân tạo" in prompt.lower():
+            reply = "AI (Artificial Intelligence) là khả năng của máy tính thực hiện các nhiệm vụ thường cần trí tuệ con người như học, suy luận và giải quyết vấn đề."
+        elif "machine learning" in prompt.lower() or "học máy" in prompt.lower():
+            reply = "Machine Learning là một nhánh của AI, giúp máy tính học từ dữ liệu mà không cần được lập trình rõ ràng từng bước."
+        elif "chào" in prompt.lower() or "hello" in prompt.lower():
+            reply = "Chào bạn! Mình có thể giúp gì cho bạn hôm nay?"
+        else:
+            reply = f"Mình đã nhận được câu hỏi: '{prompt}'. Đây là phiên bản demo đơn giản. Bạn có thể kết nối API (như Groq hoặc OpenAI) để có câu trả lời thông minh hơn."
+
+        st.markdown(reply)
+        st.session_state.messages.append({"role": "assistant", "content": reply})
+
+# Nút xóa lịch sử
+if st.button("🗑️ Xóa lịch sử chat"):
+    st.session_state.messages = [
+        {"role": "assistant", "content": "Xin chào! Mình là AI. Bạn muốn hỏi gì?"}
+    ]
+    st.rerun()
+
+st.caption(f"Cập nhật lúc: {datetime.now().strftime('%H:%M:%S')}")
