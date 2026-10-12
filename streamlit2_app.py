@@ -38,7 +38,7 @@ if prompt := st.chat_input("Nhập câu hỏi của bạn..."):
                     clean_messages.append({"role": m["role"], "content": content})
 
                 response = client.chat.completions.create(
-                    model="llama-3.3-70b-versatile",
+                    model="llama-3.1-8b-instant",   # Model đang hoạt động tốt
                     messages=clean_messages,
                     temperature=0.7,
                     max_tokens=1024
