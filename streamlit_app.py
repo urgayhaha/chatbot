@@ -86,7 +86,7 @@ with col_btn:
                 accept_multiple_files=True,
                 label_visibility="collapsed"
             )
-            st.markdown("<p style='font-size:0.8em; color:#666; margin-top:-5px; margin-bottom:10px >", unsafe_allow_html=True)
+            st.markdown("<p style='font-size:0.8em; color:#666; margin-top:-5px; margin-bottom:10px;'>The Maximum Limit is 1 GB per file</p>", unsafe_allow_html=True)
             
             if st.form_submit_button("Tải lên"):
                 if files:
@@ -153,14 +153,4 @@ else:
         else:
             st.write(art.get("content", ""))
 
-        if art.get("type") != "multi_media":
-            st.subheader("Chỉnh sửa")
-            with st.form(f"edit_{art.get('id')}"):
-                new_title = st.text_input("Tiêu đề", value=art.get("title", ""), max_chars=1000)
-                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=200, max_chars=1000)
-                if st.form_submit_button("Lưu"):
-                    art["title"] = new_title
-                    art["content"] = new_content
-                    art["updated"] = datetime.now().strftime("%Y-%m-%d")
-                    st.success("Đã lưu")
-                    st.rerun()
+        if art.get("type") != "
