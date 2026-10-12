@@ -42,7 +42,7 @@ def make_id(title):
 if not st.session_state.admin_logged_in:
     col1, col2, col3 = st.columns([1, 1.1, 1])
     with col2:
-        st.markdown("<h1 style='text-align:center;'> Đăng nhập Admin</h1>", unsafe_allow_html=True)
+        st.markdown("<h1 style='text-align:center;'>🔐 Đăng nhập Admin</h1>", unsafe_allow_html=True)
         with st.form("login_form"):
             username = st.text_input("Tài khoản", value="admin")
             password = st.text_input("Mật khẩu", type="password")
@@ -153,4 +153,14 @@ else:
         else:
             st.write(art.get("content", ""))
 
-        if art.get("type") != "
+        if art.get("type") != "multi_media":
+            st.subheader("Chỉnh sửa")
+            with st.form(f"edit_{art.get('id')}"):
+                new_title = st.text_input("Tiêu đề", value=art.get("title", ""), max_chars=1000)
+                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=200, max_chars=1000)
+                if st.form_submit_button("Lưu"):
+                    art["title"] = new_title
+                    art["content"] = new_content
+                    art["updated"] = datetime.now().strftime("%Y-%m-%d")
+                    st.success("Đã lưu")
+                    st.rerun()
