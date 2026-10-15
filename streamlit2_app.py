@@ -7,13 +7,14 @@ st.set_page_config(page_title="AI Chat", page_icon="🤖", layout="wide")
 st.title("🤖 AI Chat (Groq)")
 st.caption("Kết nối với Groq - miễn phí và nhanh")
 
-api_key = st.sidebar.text_input("Groq API Key", type="password")
+# === DÁN API KEY CỦA BẠN VÀO ĐÂY ===
+API_KEY = "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"   # Thay bằng key thật của bạn
 
-if not api_key:
-    st.info("Vui lòng nhập Groq API Key ở thanh bên trái.")
+if not API_KEY or API_KEY.startswith("gsk_xxxx"):
+    st.error("Bạn chưa điền Groq API Key vào code!")
     st.stop()
 
-client = Groq(api_key=api_key)
+client = Groq(api_key=API_KEY)
 
 if "messages" not in st.session_state:
     st.session_state.messages = [
@@ -38,7 +39,7 @@ if prompt := st.chat_input("Nhập câu hỏi của bạn..."):
                     clean_messages.append({"role": m["role"], "content": content})
 
                 response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",   # Model đang hoạt động tốt
+                    model="llama-3.1-8b-instant",
                     messages=clean_messages,
                     temperature=0.7,
                     max_tokens=1024
