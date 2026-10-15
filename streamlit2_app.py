@@ -8,9 +8,9 @@ st.title("🤖 AI Chat (Groq)")
 st.caption("Kết nối với Groq - miễn phí và nhanh")
 
 # === DÁN API KEY CỦA BẠN VÀO ĐÂY ===
-API_KEY = "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"   # Thay bằng key thật của bạn
+API_KEY = "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"   # Thay bằng key thật của bạn
 
-if not API_KEY or API_KEY.startswith("gsk_xxxx"):
+if not API_KEY or "xxxx" in API_KEY:
     st.error("Bạn chưa điền Groq API Key vào code!")
     st.stop()
 
@@ -39,7 +39,7 @@ if prompt := st.chat_input("Nhập câu hỏi của bạn..."):
                     clean_messages.append({"role": m["role"], "content": content})
 
                 response = client.chat.completions.create(
-                    model="llama-3.1-8b-instant",
+                    model="openai/gpt-oss-20b",   # Model free tier ổn định
                     messages=clean_messages,
                     temperature=0.7,
                     max_tokens=1024
