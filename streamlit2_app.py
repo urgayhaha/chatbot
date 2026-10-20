@@ -125,4 +125,3 @@ class ImprovedCuriosityEngine:
         result["target"] = target
         result["curiosity_score"] = ranked[0]["score"]
         return result
-        
