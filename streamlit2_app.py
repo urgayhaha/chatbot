@@ -32,7 +32,9 @@ class AGIKnowledgeMemory:
             self.nodes[entity_id]["updated_at"] = time.time()
 
     def add_relation(self, source: str, target: str, relation: str, weight: float = 1.0):
-        source, target, relation = source.strip().lower(), target.strip().lower(), relation.strip().lower()
+        source = source.strip().lower()
+        target = target.strip().lower()
+        relation = relation.strip().lower()
         if source not in self.nodes:
             self.add_entity(source, "Unknown")
         if target not in self.nodes:
@@ -47,8 +49,11 @@ class AGIKnowledgeMemory:
         })
 
     def save_to_file(self):
-        data = {"nodes": self.nodes, "edges": self.edges,
-                "meta": {"total_nodes": len(self.nodes), "total_edges": len(self.edges), "saved_at": time.time()}}
+        data = {
+            "nodes": self.nodes,
+            "edges": self.edges,
+            "meta": {"total_nodes": len(self.nodes), "total_edges": len(self.edges), "saved_at": time.time()}
+        }
         with open(self.filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -163,10 +168,11 @@ class ImprovedCuriosityEngine:
         results = []
         for node_id in self.memory.nodes:
             detail = self.compute_curiosity_score(node_id)
-            if detail.get("total", 0) > 1.0:
+            total = detail.get("total", 0)
+            if total > 1.0:
                 results.append({
                     "entity": node_id,
-                    "score": detail["total"],
+                    "score": total,
                     "type": self.memory.nodes[node_id].get("type", "Unknown"),
                     "breakdown": {k: round(v, 2) for k, v in detail.items() if k != "total"}
                 })
@@ -181,19 +187,29 @@ class ImprovedCuriosityEngine:
         self.last_exploration_time[entity_id] = time.time()
 
         hypo_count = self.hypothesis_count.get(entity_id, 0)
-        actions = [self._seek_related_concept, self._strengthen_weak_link] if hypo_count >= 2 else \
-                  [self._seek_related_concept, self._generate_question, self._strengthen_weak_link]
+        if hypo_count >= 2:
+            actions = [self._seek_related_concept, self._strengthen_weak_link]
+        else:
+            actions = [self._seek_related_concept, self._generate_question, self._strengthen_weak_link]
+
         result = random.choice(actions)(entity_id)
         if result.get("action") == "create_hypothesis":
             self.hypothesis_count[entity_id] = hypo_count + 1
-        self.exploration_history.append({"target": entity_id, "action": result.get("action"), "timestamp": time.time()})
+
+        self.exploration_history.append({
+            "target": entity_id,
+            "action": result.get("action"),
+            "timestamp": time.time()
+        })
         self.memory.save_to_file()
         return result
 
     def _generate_question(self, entity_id: str) -> dict:
-        questions = [f"{entity_id} liên quan đến những khái niệm nào khác?",
-                     f"{entity_id} có chức năng gì?",
-                     f"Có thể kết hợp {entity_id} với cái gì?"]
+        questions = [
+            f"{entity_id} liên quan đến những khái niệm nào khác?",
+            f"{entity_id} có chức năng gì?",
+            f"Có thể kết hợp {entity_id} với cái gì?",
+        ]
         q = random.choice(questions)
         q_node = f"câu_hỏi_{int(time.time()) % 100000}"
         self.memory.add_entity(q_node, "Câu hỏi khám phá", {"content": q})
@@ -201,20 +217,26 @@ class ImprovedCuriosityEngine:
         return {"success": True, "action": "generate_question", "detail": q}
 
     def _seek_related_concept(self, entity_id: str) -> dict:
-        candidates = [n for n, info in self.memory.nodes.items()
-                      if n != entity_id and info.get("type") not in ["Giả thuyết", "Câu hỏi khám phá", "Giả thuyết tự chủ"]]
+        candidates = [
+            n for n, info in self.memory.nodes.items()
+            if n != entity_id and info.get("type") not in ["Giả thuyết", "Câu hỏi khám phá", "Giả thuyết tự chủ"]
+        ]
         if not candidates:
             return {"success": False, "action": "seek_related", "detail": "Không có node phù hợp"}
         related = random.choice(candidates)
-        exists = any((e["source"] == entity_id and e["target"] == related) or
-                     (e["source"] == related and e["target"] == entity_id) for e in self.memory.edges)
+        exists = any(
+            (e["source"] == entity_id and e["target"] == related) or
+            (e["source"] == related and e["target"] == entity_id)
+            for e in self.memory.edges
+        )
         if not exists:
             self.memory.add_relation(entity_id, related, "có thể liên quan", weight=1.5)
             return {"success": True, "action": "seek_related", "detail": f"Liên kết với {related}"}
         return {"success": False, "action": "seek_related", "detail": "Đã có liên kết"}
 
     def _strengthen_weak_link(self, entity_id: str) -> dict:
-        weak = [e for e in self.memory.edges if (e["source"] == entity_id or e["target"] == entity_id) and e["weight"] < 3.0]
+        weak = [e for e in self.memory.edges
+                if (e["source"] == entity_id or e["target"] == entity_id) and e["weight"] < 3.0]
         if weak:
             edge = random.choice(weak)
             edge["weight"] = min(5.0, edge["weight"] + 0.5)
@@ -238,9 +260,11 @@ class ImprovedCuriosityEngine:
 
     def cleanup_old_hypotheses(self, max_age_seconds=600):
         now = time.time()
-        to_delete = [nid for nid, info in self.memory.nodes.items()
-                     if info.get("type") in ["Giả thuyết", "Câu hỏi khám phá"]
-                     and now - info.get("created_at", now) > max_age_seconds]
+        to_delete = [
+            nid for nid, info in self.memory.nodes.items()
+            if info.get("type") in ["Giả thuyết", "Câu hỏi khám phá"]
+            and now - info.get("created_at", now) > max_age_seconds
+        ]
         for nid in to_delete:
             del self.memory.nodes[nid]
             self.memory.edges = [e for e in self.memory.edges if e["source"] != nid and e["target"] != nid]
@@ -289,10 +313,11 @@ tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu", "📊 Đồ thị", "✨ Tò m
 
 with tab1:
     st.subheader("Nạp văn bản")
-    raw = st.text_area("Văn bản:", 
-        "Hệ thống AGI sử dụng Bioacoustics để phân tích âm thanh.\n"
-        "Mô hình Kitsune mô phỏng sinh vật huyền thoại.\n"
-        "Hệ thống AGI phát triển Mô hình Kitsune.", height=120)
+    raw = st.text_area(
+        "Văn bản:",
+        "Hệ thống AGI sử dụng Bioacoustics để phân tích âm thanh.\nMô hình Kitsune mô phỏng sinh vật huyền thoại.",
+        height=120
+    )
     c1, c2 = st.columns(2)
     with c1:
         if st.button("🚀 Trích xuất & Nạp", use_container_width=True):
@@ -311,9 +336,15 @@ with tab2:
     c1.metric("Nodes", len(memory.nodes))
     c2.metric("Edges", len(memory.edges))
     if memory.edges:
-        df = pd.DataFrame([{"Từ": e["source"], "Quan hệ": e["relation"], 
-                            "Đến": e["target"], "Weight": round(e["weight"], 1)} for e in memory.edges])
+        df = pd.DataFrame([{
+            "Từ": e["source"],
+            "Quan hệ": e["relation"],
+            "Đến": e["target"],
+            "Weight": round(e["weight"], 1)
+        } for e in memory.edges])
         st.dataframe(df, use_container_width=True, hide_index=True)
+    else:
+        st.info("Chưa có mối quan hệ.")
 
 with tab3:
     st.subheader("Curiosity Score")
@@ -321,18 +352,26 @@ with tab3:
     if ranked:
         st.markdown(f"**Top mục tiêu ({len(ranked)}):**")
         for item in ranked[:8]:
-            with st.expander(f"**{item['entity']}** — {item['score']} điểm"):
-                st.write(f"Loại: `{item['type']}`")
-                st.json(item["breakdown"])
+            score = item.get("score", 0)
+            entity = item.get("entity", "?")
+            with st.expander(f"**{entity}** — {score} điểm"):
+                st.write(f"Loại: `{item.get('type', 'Unknown')}`")
+                breakdown = item.get("breakdown", {})
+                if breakdown:
+                    st.json(breakdown)
+                else:
+                    st.caption("Không có chi tiết")
         c1, c2 = st.columns(2)
         with c1:
             if st.button("🎯 Khám phá ngay", use_container_width=True):
                 res = curiosity.auto_explore_once()
                 if res.get("success"):
-                    msg = f"{res['target']} → {res.get('detail', '')}"
+                    msg = f"{res.get('target', '')} → {res.get('detail', '')}"
                     st.success(msg)
                     st.session_state.explore_log.append(msg)
                     st.rerun()
+                else:
+                    st.info("Không có hành động.")
         with c2:
             if st.button("🗑️ Dọn giả thuyết cũ", use_container_width=True):
                 n = curiosity.cleanup_old_hypotheses()
@@ -340,12 +379,16 @@ with tab3:
                 st.rerun()
     else:
         st.info("Không có mục tiêu tò mò hiện tại.")
+        if st.button("🗑️ Dọn giả thuyết cũ"):
+            n = curiosity.cleanup_old_hypotheses()
+            st.warning(f"Đã xóa {n}")
+            st.rerun()
 
 # ==================== 7. BACKGROUND ====================
 if st.session_state.background_running:
     result = curiosity.auto_explore_once()
     if result.get("success"):
-        msg = f"{result['target']} ({result.get('curiosity_score')}) → {result.get('detail', '')}"
+        msg = f"{result.get('target', '')} → {result.get('detail', '')}"
         st.toast(f"🔍 {msg}")
         st.session_state.explore_log.append(msg)
     time.sleep(6)
