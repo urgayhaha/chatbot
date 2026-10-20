@@ -217,17 +217,20 @@ class AGICuriosityEngine:
     def trigger_curiosity(self, entity_id: str):
         entity_id = entity_id.strip().lower()
         if entity_id in self.memory.nodes:
-            hypo = f"giả_thuyết_mở_rộng_{entity_id}"
+            hypo = f"giả_thuyết_tự_chủ_{int(time.time())}"
             self.memory.add_entity(hypo, "Giả thuyết tự chủ")
             self.memory.add_relation(entity_id, hypo, "khám phá tiềm năng", weight=3.0)
             self.memory.save_to_file()
-            return True
-        return False
+            return hypo
+        return None
 
 
 # ==================== 2. KHỞI TẠO STATE ỨNG DỤNG ====================
 if "agi_memory" not in st.session_state:
     st.session_state.agi_memory = AGIKnowledgeMemory()
+
+if "background_running" not in st.session_state:
+    st.session_state.background_running = False
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
@@ -235,10 +238,35 @@ reflector = AGIReflectionLoop(memory)
 engine = AGIIntelligenceEngine(memory)
 curiosity = AGICuriosityEngine(memory)
 
-# ==================== 3. GIAO DIỆN STREAMLIT TRỰC QUAN ====================
+# ==================== 3. THANH ĐIỀU KHIỂN TRẠNG THÁI (SIDEBAR / HEADER) ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
 st.caption("Hệ thống Nhận thức Tự trị: Đồ thị Tri thức, Tự phản xạ, Suy luận Đa bước & Động lực Tự tò mò.")
 
+# Khu vực nút điều khiển chạy ngầm (Xanh / Đỏ)
+st.sidebar.header("⚙️ Điều khiển Động lực Nội tại")
+
+col_status, col_btn = st.sidebar.columns([1, 1])
+
+with col_status:
+    if st.session_state.background_running:
+        st.markdown("🟢 **ĐANG CHẠY NGẦM**", unsafe_allow_html=True)
+    else:
+        st.markdown("🔴 **ĐÃ DỪNG CHẠY**", unsafe_allow_html=True)
+
+with col_btn:
+    if st.session_state.background_running:
+        if st.button("🛑 Dừng chạy ngầm", type="primary", use_container_width=True):
+            st.session_state.background_running = False
+            st.rerun()
+    else:
+        if st.button("🟢 Bật chạy ngầm", type="secondary", use_container_width=True):
+            st.session_state.background_running = True
+            st.rerun()
+
+st.sidebar.divider()
+st.sidebar.info("💡 Khi **Bật chạy ngầm**, AGI sẽ tự động thực thi vòng lặp nhận thức, quét khoảng trống và tự giải quyết sự tò mò liên tục mà không cần bấm nút.")
+
+# ==================== 4. GIAO DIỆN CHÍNH (TABS) ====================
 tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & Trích xuất", "📊 Đồ thị Tri thức", "🔍 Suy luận Đa bước", "✨ Động lực Tò mò"])
 
 # TAB 1: NHẬP LIỆU
@@ -258,7 +286,7 @@ with tab1:
             st.warning(f"Đã dọn dẹp và tiêu hủy {pruned} thực thể rác/cô lập!")
             st.rerun()
 
-# TAB 2: ĐỒ THỊ TRI THỨC (TRỰC QUAN BẰNG BẢNG)
+# TAB 2: ĐỒ THỊ TRI THỨC
 with tab2:
     st.subheader("Cấu trúc Đồ thị Tri thức (Knowledge Graph)")
     
@@ -319,8 +347,6 @@ with tab3:
             
             if result["status"] == "Success":
                 st.success(f"✅ Suy luận thành công! Tổng điểm tin cậy: {result['total_confidence_score']}")
-                
-                # Hiển thị chuỗi suy luận dạng danh sách trực quan
                 st.markdown("### 🧭 Chuỗi các bước suy luận chi tiết:")
                 steps = result["step_by_step_reasoning"]
                 
@@ -359,9 +385,29 @@ with tab4:
         selected_gap = st.selectbox("Chọn khoảng trống tri thức để AGI tự hành động tò mò:", [g['entity'] for g in gaps])
         
         if st.button("🎯 Kích hoạt Hành vi Tự tò mò", use_container_width=True):
-            success = curiosity.trigger_curiosity(selected_gap)
-            if success:
-                st.success(f"🎉 AGI đã tự động thiết lập giả thuyết mới và mở rộng nhận thức cho thực thể '{selected_gap.upper()}' thành công!")
+            hypo_created = curiosity.trigger_curiosity(selected_gap)
+            if hypo_created:
+                st.success(f"🎉 AGI đã tự động thiết lập giả thuyết mới '{hypo_created.upper()}' và mở rộng nhận thức cho thực thể '{selected_gap.upper()}' thành công!")
                 st.rerun()
     else:
         st.success("Tất cả thực thể trong bộ nhớ đều có độ liên kết vững chắc! Không có khoảng trống tò mò.")
+
+# ==================== 5. VÒNG LẶP CHẠY NGẦM (BACKGROUND DAEMON LOOP) ====================
+if st.session_state.background_running:
+    # Hiển thị thông báo trạng thái đang chạy ngầm trên giao diện
+    st.toast("🤖 AGI Background Loop đang hoạt động: Quét và tự giải quyết sự tò mò...", icon="🧠")
+    
+    # Tự động thực hiện một chu trình tự học/tự tò mò
+    gaps = curiosity.scan_knowledge_gaps()
+    if gaps:
+        # Lấy khoảng trống có độ tò mò cao nhất để tự khám phá
+        target_gap = gaps[0]["entity"]
+        hypo = curiosity.trigger_curiosity(target_gap)
+        if hypo:
+            # Lưu lại log ngầm (hoặc hiển thị nhẹ)
+            time.sleep(2)  # Tạm dừng ngắn để tránh lãng phí CPU và tạo nhịp sinh học cho AGI
+            st.rerun()     # Làm mới giao diện để cập nhật đồ thị tri thức thời gian thực
+    else:
+        # Nếu không còn khoảng trống nào, tạm nghỉ để tiết kiệm tài nguyên
+        time.sleep(3)
+        st.rerun()
