@@ -4,7 +4,8 @@ import os
 import time
 import re
 import heapq
-from collections import deque
+import pandas as pd
+from datetime import datetime
 
 # Cấu hình giao diện Streamlit
 st.set_page_config(page_title="AGI Cognitive Dashboard", page_icon="🧠", layout="wide")
@@ -73,12 +74,12 @@ class AGIKnowledgeExtractor:
     def __init__(self, memory_system: AGIKnowledgeMemory):
         self.memory = memory_system
         self.relation_patterns = [
-            (r"(.+?)\s+(là|bao gồm|được phân loại là|thuộc về)\s+(.+)", "is_a"),
-            (r"(.+?)\s+(sử dụng|áp dụng|dùng|vận hành bằng)\s+(.+)", "uses"),
-            (r"(.+?)\s+(phát triển|tạo ra|nghiên cứu|mô phỏng)\s+(.+)", "creates"),
-            (r"(.+?)\s+(yêu cầu|cần có|phụ thuộc vào)\s+(.+)", "requires"),
-            (r"(.+?)\s+(kết nối với|liên kết với|tương tác với)\s+(.+)", "connects_to"),
-            (r"(.+?)\s+(được thiết kế để|có chức năng)\s+(.+)", "designed_for"),
+            (r"(.+?)\s+(là|bao gồm|được phân loại là|thuộc về)\s+(.+)", "là / thuộc về"),
+            (r"(.+?)\s+(sử dụng|áp dụng|dùng|vận hành bằng)\s+(.+)", "sử dụng"),
+            (r"(.+?)\s+(phát triển|tạo ra|nghiên cứu|mô phỏng)\s+(.+)", "tạo ra / mô phỏng"),
+            (r"(.+?)\s+(yêu cầu|cần có|phụ thuộc vào)\s+(.+)", "yêu cầu"),
+            (r"(.+?)\s+(kết nối với|liên kết với|tương tác với)\s+(.+)", "kết nối với"),
+            (r"(.+?)\s+(được thiết kế để|có chức năng)\s+(.+)", "thiết kế để"),
         ]
 
     def extract_and_ingest(self, text: str):
@@ -98,8 +99,8 @@ class AGIKnowledgeExtractor:
                     obj_clean = re.sub(r'^(một|các|những|hệ thống|mô hình)\s+', '', obj, flags=re.IGNORECASE)
                     
                     if len(subject_clean) > 1 and len(obj_clean) > 1:
-                        self.memory.add_entity(subject_clean, "ExtractedEntity")
-                        self.memory.add_entity(obj_clean, "ExtractedEntity")
+                        self.memory.add_entity(subject_clean, "Thực thể chính")
+                        self.memory.add_entity(obj_clean, "Thực thể chính")
                         self.memory.add_relation(subject_clean, obj_clean, relation_type)
                         extracted_count += 1
                         matched = True
@@ -109,7 +110,7 @@ class AGIKnowledgeExtractor:
                 words = [w for w in sentence.split() if len(w) > 3]
                 if words:
                     core_concept = " ".join(words[:3])
-                    self.memory.add_entity(core_concept, "UnstructuredConcept")
+                    self.memory.add_entity(core_concept, "Khái niệm thô")
         
         self.memory.save_to_file()
         return extracted_count
@@ -125,7 +126,7 @@ class AGIReflectionLoop:
         
         pruned_count = 0
         for node_id in isolated_nodes:
-            if self.memory.nodes[node_id]["type"] == "UnstructuredConcept":
+            if self.memory.nodes[node_id]["type"] in ["Khái niệm thô", "UnstructuredConcept"]:
                 del self.memory.nodes[node_id]
                 pruned_count += 1
         self.memory.save_to_file()
@@ -141,7 +142,7 @@ class AGIIntelligenceEngine:
         target_entity = target_entity.strip().lower()
 
         if start_entity not in self.memory.nodes or target_entity not in self.memory.nodes:
-            return {"status": "Failed", "message": "Thực thể không tồn tại trong bộ nhớ."}
+            return {"status": "Failed", "message": "Thực thể chọn không tồn tại trong kho tri thức."}
 
         adjacency = {}
         for edge in self.memory.edges:
@@ -179,7 +180,7 @@ class AGIIntelligenceEngine:
                         heapq.heappush(pq, (-new_cost, neighbor, new_path, new_steps))
 
         if not best_path_found:
-            return {"status": "Not Found", "message": "Không tìm thấy chuỗi logic nối giữa hai thực thể này."}
+            return {"status": "Not Found", "message": f"Không tìm thấy con đường suy luận logic từ '{start_entity}' đến '{target_entity}'."}
 
         path_nodes, path_details = best_path_found
         return {
@@ -216,9 +217,9 @@ class AGICuriosityEngine:
     def trigger_curiosity(self, entity_id: str):
         entity_id = entity_id.strip().lower()
         if entity_id in self.memory.nodes:
-            hypo = f"hypothesis_on_{entity_id}"
-            self.memory.add_entity(hypo, "AutonomousHypothesis")
-            self.memory.add_relation(entity_id, hypo, "explores_potential", weight=3.0)
+            hypo = f"giả_thuyết_mở_rộng_{entity_id}"
+            self.memory.add_entity(hypo, "Giả thuyết tự chủ")
+            self.memory.add_relation(entity_id, hypo, "khám phá tiềm năng", weight=3.0)
             self.memory.save_to_file()
             return True
         return False
@@ -234,59 +235,133 @@ reflector = AGIReflectionLoop(memory)
 engine = AGIIntelligenceEngine(memory)
 curiosity = AGICuriosityEngine(memory)
 
-# ==================== 3. GIAO DIỆN STREAMLIT ====================
+# ==================== 3. GIAO DIỆN STREAMLIT TRỰC QUAN ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
-st.markdown("Hệ thống Nhận thức Tự trị: Đồ thị Tri thức, Tự phản xạ, Suy luận Đa bước & Động lực Tự tò mò.")
+st.caption("Hệ thống Nhận thức Tự trị: Đồ thị Tri thức, Tự phản xạ, Suy luận Đa bước & Động lực Tự tò mò.")
 
 tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & Trích xuất", "📊 Đồ thị Tri thức", "🔍 Suy luận Đa bước", "✨ Động lực Tò mò"])
 
+# TAB 1: NHẬP LIỆU
 with tab1:
-    st.subheader("Nạp tri thức thô vào AGI")
-    raw_input = st.text_area("Nhập văn bản cần phân tích:", "Hệ thống AGI sử dụng Bioacoustics để phân tích âm thanh.\nMô hình Kitsune mô phỏng Sinh vật huyền thoại.\nHệ thống AGI phát triển Mô hình Kitsune.")
+    st.subheader("Nạp văn bản tri thức thô")
+    raw_input = st.text_area("Nhập văn bản cần phân tích:", "Hệ thống AGI sử dụng Bioacoustics để phân tích âm thanh.\nMô hình Kitsune mô phỏng Sinh vật huyền thoại.\nHệ thống AGI phát triển Mô hình Kitsune.", height=120)
     
     col1, col2 = st.columns(2)
     with col1:
-        if st.button("🚀 Trích xuất & Nạp vào Bộ nhớ"):
+        if st.button("🚀 Trích xuất & Nạp vào Bộ nhớ", use_container_width=True):
             count = extractor.extract_and_ingest(raw_input)
-            st.success(f"Đã trích xuất và nạp thành công {count} tri thức mới!")
+            st.success(f"Đã trích xuất thành công {count} liên kết tri thức mới!")
+            st.rerun()
     with col2:
-        if st.button("🧠 Kích hoạt Tự phản xạ (Lọc rác)"):
+        if st.button("🧠 Kích hoạt Tự phản xạ (Dọn rác)", use_container_width=True):
             pruned = reflector.reflect_and_optimize()
-            st.warning(f"Đã dọn dẹp và tiêu hủy thành công {pruned} thực thể rác độc lập!")
+            st.warning(f"Đã dọn dẹp và tiêu hủy {pruned} thực thể rác/cô lập!")
+            st.rerun()
 
+# TAB 2: ĐỒ THỊ TRI THỨC (TRỰC QUAN BẰNG BẢNG)
 with tab2:
     st.subheader("Cấu trúc Đồ thị Tri thức (Knowledge Graph)")
+    
+    m1, m2 = st.columns(2)
+    m1.metric("Tổng Thực Thể (Nodes)", len(memory.nodes))
+    m2.metric("Tổng Mối Quan Hệ (Edges)", len(memory.edges))
+    
+    st.divider()
+    
     col_a, col_b = st.columns(2)
+    
     with col_a:
-        st.markdown(f"### Tổng thực thể: {len(memory.nodes)}")
-        st.json(memory.nodes)
-    with col_b:
-        st.markdown(f"### Tổng mối quan hệ: {len(memory.edges)}")
-        st.json(memory.edges)
+        st.markdown("### 📌 Danh sách Thực thể (Entities)")
+        if memory.nodes:
+            node_data = []
+            for n_id, n_info in memory.nodes.items():
+                created = datetime.fromtimestamp(n_info.get("created_at", time.time())).strftime("%H:%M:%S %d/%m/%Y")
+                node_data.append({
+                    "Tên thực thể": n_id.upper(),
+                    "Phân loại": n_info.get("type", "Khái niệm"),
+                    "Thời gian nạp": created
+                })
+            df_nodes = pd.DataFrame(node_data)
+            st.dataframe(df_nodes, use_container_width=True, hide_index=True)
+        else:
+            st.info("Chưa có thực thể nào trong bộ nhớ.")
 
+    with col_b:
+        st.markdown("### 🔗 Danh sách Mối quan hệ (Relations)")
+        if memory.edges:
+            edge_data = []
+            for edge in memory.edges:
+                edge_data.append({
+                    "Từ thực thể": edge["source"].upper(),
+                    "Quan hệ": f"-[ {edge['relation']} ]->",
+                    "Đến thực thể": edge["target"].upper(),
+                    "Độ bền (Weight)": f"{edge['weight']:.1f}"
+                })
+            df_edges = pd.DataFrame(edge_data)
+            st.dataframe(df_edges, use_container_width=True, hide_index=True)
+        else:
+            st.info("Chưa có mối quan hệ nào giữa các thực thể.")
+
+# TAB 3: SUY LUẬN ĐA BƯỚC
 with tab3:
     st.subheader("Động cơ Suy luận Thông minh (Multi-step Reasoning)")
     node_list = list(memory.nodes.keys())
+    
     if len(node_list) >= 2:
-        start_node = st.selectbox("Chọn thực thể bắt đầu:", node_list, index=0)
-        target_node = st.selectbox("Chọn thực thể mục tiêu:", node_list, index=min(1, len(node_list)-1))
+        col_s1, col_s2 = st.columns(2)
+        with col_s1:
+            start_node = st.selectbox("Chọn thực thể điểm bắt đầu:", node_list, index=0)
+        with col_s2:
+            target_node = st.selectbox("Chọn thực thể mục tiêu:", node_list, index=min(1, len(node_list)-1))
         
-        if st.button("🔎 Thực hiện Suy luận Đa bước"):
+        if st.button("🔎 Thực hiện Suy luận Đa bước", use_container_width=True):
             result = engine.deep_smart_reasoning(start_node, target_node)
-            st.json(result)
+            
+            if result["status"] == "Success":
+                st.success(f"✅ Suy luận thành công! Tổng điểm tin cậy: {result['total_confidence_score']}")
+                
+                # Hiển thị chuỗi suy luận dạng danh sách trực quan
+                st.markdown("### 🧭 Chuỗi các bước suy luận chi tiết:")
+                steps = result["step_by_step_reasoning"]
+                
+                for idx, step in enumerate(steps, 1):
+                    st.info(
+                        f"**Bước {idx}:** Từ **{step['from'].upper()}** "
+                        f"bắc cầu qua quan hệ `[{step['relation']}]` "
+                        f"đến **{step['to'].upper()}** *(Trọng số: {step['weight']})*"
+                    )
+            else:
+                st.error(f"❌ {result['message']}")
     else:
-        st.info("Vui lòng nạp thêm ít nhất 2 thực thể ở tab Nhập liệu để thực hiện suy luận.")
+        st.info("Cần ít nhất 2 thực thể trong bộ nhớ để thực hiện suy luận.")
 
+# TAB 4: ĐỘNG LỰC TÒ MÒ
 with tab4:
     st.subheader("Động cơ Tự tò mò & Động lực Nội tại (Curiosity Engine)")
     gaps = curiosity.scan_knowledge_gaps()
-    st.markdown(f"**Phát hiện {len(gaps)} khoảng trống tri thức trong hệ thống:**")
-    st.dataframe(gaps)
     
     if gaps:
-        selected_gap = st.selectbox("Chọn khoảng trống để AGI tự tò mò khám phá:", [g['entity'] for g in gaps])
-        if st.button("🎯 Kích hoạt Hành vi Tự tò mò"):
+        st.markdown(f"**Phát hiện {len(gaps)} khoảng trống tri thức/thực thể ít liên kết cần khám phá:**")
+        
+        gap_data = []
+        for g in gaps:
+            gap_data.append({
+                "Thực thể": g["entity"].upper(),
+                "Loại thực thể": g["type"],
+                "Số liên kết hiện có": g["current_connections"],
+                "Điểm Tò mò (Curiosity)": f"⭐ {g['curiosity_score']:.1f}"
+            })
+        
+        df_gaps = pd.DataFrame(gap_data)
+        st.dataframe(df_gaps, use_container_width=True, hide_index=True)
+        
+        st.divider()
+        selected_gap = st.selectbox("Chọn khoảng trống tri thức để AGI tự hành động tò mò:", [g['entity'] for g in gaps])
+        
+        if st.button("🎯 Kích hoạt Hành vi Tự tò mò", use_container_width=True):
             success = curiosity.trigger_curiosity(selected_gap)
             if success:
-                st.success(f"AGI đã tự động thiết lập giả thuyết và mở rộng nhận thức cho '{selected_gap}' thành công!")
-                st.rerun() 
+                st.success(f"🎉 AGI đã tự động thiết lập giả thuyết mới và mở rộng nhận thức cho thực thể '{selected_gap.upper()}' thành công!")
+                st.rerun()
+    else:
+        st.success("Tất cả thực thể trong bộ nhớ đều có độ liên kết vững chắc! Không có khoảng trống tò mò.")
