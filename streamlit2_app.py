@@ -5,12 +5,12 @@ import time
 import re
 import heapq
 import pandas as pd
+import random
 from datetime import datetime
 
-# Cấu hình giao diện Streamlit
 st.set_page_config(page_title="AGI Cognitive Dashboard", page_icon="🧠", layout="wide")
 
-# ==================== 1. CÁC LỚP CƠ SỞ AGI ====================
+# ==================== 1. BỘ NHỚ ====================
 class AGIKnowledgeMemory:
     def __init__(self, filepath="agi_long_term_memory.json"):
         self.filepath = filepath
@@ -36,29 +36,20 @@ class AGIKnowledgeMemory:
         source = source.strip().lower()
         target = target.strip().lower()
         relation = relation.strip().lower()
-
         if source not in self.nodes: self.add_entity(source, "Unknown")
         if target not in self.nodes: self.add_entity(target, "Unknown")
-
         for edge in self.edges:
             if edge["source"] == source and edge["target"] == target and edge["relation"] == relation:
                 edge["weight"] = min(5.0, edge["weight"] + 0.5)
                 return
-
         self.edges.append({
-            "source": source,
-            "target": target,
-            "relation": relation,
-            "weight": weight,
-            "created_at": time.time()
+            "source": source, "target": target, "relation": relation,
+            "weight": weight, "created_at": time.time()
         })
 
     def save_to_file(self):
-        data = {
-            "nodes": self.nodes,
-            "edges": self.edges,
-            "meta": {"total_nodes": len(self.nodes), "total_edges": len(self.edges), "saved_at": time.time()}
-        }
+        data = {"nodes": self.nodes, "edges": self.edges,
+                "meta": {"total_nodes": len(self.nodes), "total_edges": len(self.edges), "saved_at": time.time()}}
         with open(self.filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -67,11 +58,11 @@ class AGIKnowledgeMemory:
             with open(self.filepath, "r", encoding="utf-8") as f:
                 data = json.load(f)
                 self.nodes = data.get("nodes", {})
-                self.edges = data.get("edges", {})
+                self.edges = data.get("edges", [])
 
-
+# ==================== 2. EXTRACTOR & REFLECTION ====================
 class AGIKnowledgeExtractor:
-    def __init__(self, memory_system: AGIKnowledgeMemory):
+    def __init__(self, memory_system):
         self.memory = memory_system
         self.relation_patterns = [
             (r"(.+?)\s+(là|bao gồm|được phân loại là|thuộc về)\s+(.+)", "là / thuộc về"),
@@ -79,335 +70,206 @@ class AGIKnowledgeExtractor:
             (r"(.+?)\s+(phát triển|tạo ra|nghiên cứu|mô phỏng)\s+(.+)", "tạo ra / mô phỏng"),
             (r"(.+?)\s+(yêu cầu|cần có|phụ thuộc vào)\s+(.+)", "yêu cầu"),
             (r"(.+?)\s+(kết nối với|liên kết với|tương tác với)\s+(.+)", "kết nối với"),
-            (r"(.+?)\s+(được thiết kế để|có chức năng)\s+(.+)", "thiết kế để"),
         ]
 
     def extract_and_ingest(self, text: str):
-        raw_sentences = re.split(r'[.\n;]', text)
-        sentences = [s.strip() for s in raw_sentences if s.strip()]
-        
-        extracted_count = 0
+        sentences = [s.strip() for s in re.split(r'[.\n;]', text) if s.strip()]
+        count = 0
         for sentence in sentences:
             matched = False
-            for pattern, relation_type in self.relation_patterns:
+            for pattern, rel in self.relation_patterns:
                 match = re.search(pattern, sentence, re.IGNORECASE)
                 if match:
-                    subject = match.group(1).strip()
-                    obj = match.group(3).strip()
-                    
-                    subject_clean = re.sub(r'^(một|các|những|hệ thống|mô hình)\s+', '', subject, flags=re.IGNORECASE)
-                    obj_clean = re.sub(r'^(một|các|những|hệ thống|mô hình)\s+', '', obj, flags=re.IGNORECASE)
-                    
-                    if len(subject_clean) > 1 and len(obj_clean) > 1:
-                        self.memory.add_entity(subject_clean, "Thực thể chính")
-                        self.memory.add_entity(obj_clean, "Thực thể chính")
-                        self.memory.add_relation(subject_clean, obj_clean, relation_type)
-                        extracted_count += 1
+                    sub = re.sub(r'^(một|các|những|hệ thống|mô hình)\s+', '', match.group(1).strip(), flags=re.IGNORECASE)
+                    obj = re.sub(r'^(một|các|những|hệ thống|mô hình)\s+', '', match.group(3).strip(), flags=re.IGNORECASE)
+                    if len(sub) > 1 and len(obj) > 1:
+                        self.memory.add_entity(sub, "Thực thể chính")
+                        self.memory.add_entity(obj, "Thực thể chính")
+                        self.memory.add_relation(sub, obj, rel)
+                        count += 1
                         matched = True
                         break
-            
             if not matched:
                 words = [w for w in sentence.split() if len(w) > 3]
                 if words:
-                    core_concept = " ".join(words[:3])
-                    self.memory.add_entity(core_concept, "Khái niệm thô")
-        
+                    self.memory.add_entity(" ".join(words[:3]), "Khái niệm thô")
         self.memory.save_to_file()
-        return extracted_count
-
+        return count
 
 class AGIReflectionLoop:
-    def __init__(self, memory_system: AGIKnowledgeMemory):
+    def __init__(self, memory_system):
         self.memory = memory_system
 
     def reflect_and_optimize(self):
-        active_nodes = {edge["source"] for edge in self.memory.edges}.union({edge["target"] for edge in self.memory.edges})
-        isolated_nodes = [n for n in self.memory.nodes if n not in active_nodes]
-        
-        pruned_count = 0
-        for node_id in isolated_nodes:
-            if self.memory.nodes[node_id]["type"] in ["Khái niệm thô", "UnstructuredConcept"]:
-                del self.memory.nodes[node_id]
-                pruned_count += 1
+        active = {e["source"] for e in self.memory.edges} | {e["target"] for e in self.memory.edges}
+        pruned = 0
+        for nid in list(self.memory.nodes.keys()):
+            if nid not in active and self.memory.nodes[nid].get("type") in ["Khái niệm thô", "UnstructuredConcept"]:
+                del self.memory.nodes[nid]
+                pruned += 1
         self.memory.save_to_file()
-        return pruned_count
+        return pruned
 
-
-class AGIIntelligenceEngine:
-    def __init__(self, memory_system: AGIKnowledgeMemory):
+# ==================== 3. IMPROVED CURIOSITY ENGINE ====================
+class ImprovedCuriosityEngine:
+    def __init__(self, memory_system):
         self.memory = memory_system
+        self.exploration_history = []
 
-    def deep_smart_reasoning(self, start_entity: str, target_entity: str):
-        start_entity = start_entity.strip().lower()
-        target_entity = target_entity.strip().lower()
+    def compute_curiosity_score(self, node_id: str) -> float:
+        if node_id not in self.memory.nodes:
+            return 0.0
+        node = self.memory.nodes[node_id]
+        degree = sum(1 for e in self.memory.edges if e["source"] == node_id or e["target"] == node_id)
+        isolation = max(0, 3.0 - degree)
+        age = time.time() - node.get("created_at", time.time())
+        recency = max(0, 2.0 - age / 3600)
+        explored = any(h["target"] == node_id for h in self.exploration_history)
+        novelty = 0.0 if explored else 2.0
+        type_bonus = 1.5 if node.get("type") in ["Khái niệm thô", "Unknown"] else 0.5
+        return isolation + recency + novelty + type_bonus
 
-        if start_entity not in self.memory.nodes or target_entity not in self.memory.nodes:
-            return {"status": "Failed", "message": "Thực thể chọn không tồn tại trong kho tri thức."}
+    def scan_and_rank(self):
+        scores = []
+        for node_id in self.memory.nodes:
+            score = self.compute_curiosity_score(node_id)
+            if score > 1.0:
+                scores.append({"entity": node_id, "score": round(score, 2),
+                               "type": self.memory.nodes[node_id].get("type", "Unknown")})
+        scores.sort(key=lambda x: x["score"], reverse=True)
+        return scores
 
-        adjacency = {}
-        for edge in self.memory.edges:
-            src, tgt, rel, w = edge["source"], edge["target"], edge["relation"], edge["weight"]
-            if src not in adjacency: adjacency[src] = []
-            if tgt not in adjacency: adjacency[tgt] = []
-            adjacency[src].append((tgt, rel, w, "forward"))
-            adjacency[tgt].append((src, rel, w, "backward"))
-
-        pq = [(0, start_entity, [start_entity], [])]
-        visited_costs = {start_entity: 0}
-        best_path_found = None
-        max_accumulated_weight = -1
-
-        while pq:
-            neg_cost, current, path, steps = heapq.heappop(pq)
-            current_weight_sum = -neg_cost
-
-            if current == target_entity:
-                if current_weight_sum > max_accumulated_weight:
-                    max_accumulated_weight = current_weight_sum
-                    best_path_found = (path, steps)
-                continue
-
-            if current not in adjacency: continue
-
-            for neighbor, rel, weight, direction in adjacency[current]:
-                if neighbor not in path:
-                    new_path = path + [neighbor]
-                    new_steps = steps + [{"from": current, "to": neighbor, "relation": rel, "direction": direction, "weight": weight}]
-                    new_cost = current_weight_sum + weight
-
-                    if neighbor not in visited_costs or new_cost > visited_costs.get(neighbor, -1):
-                        visited_costs[neighbor] = new_cost
-                        heapq.heappush(pq, (-new_cost, neighbor, new_path, new_steps))
-
-        if not best_path_found:
-            return {"status": "Not Found", "message": f"Không tìm thấy con đường suy luận logic từ '{start_entity}' đến '{target_entity}'."}
-
-        path_nodes, path_details = best_path_found
-        return {
-            "status": "Success",
-            "path_nodes": path_nodes,
-            "total_confidence_score": round(max_accumulated_weight, 2),
-            "step_by_step_reasoning": path_details
-        }
-
-
-class AGICuriosityEngine:
-    def __init__(self, memory_system: AGIKnowledgeMemory):
-        self.memory = memory_system
-
-    def scan_knowledge_gaps(self):
-        node_degrees = {node_id: 0 for node_id in self.memory.nodes}
-        for edge in self.memory.edges:
-            src, tgt = edge["source"], edge["target"]
-            if src in node_degrees: node_degrees[src] += 1
-            if tgt in node_degrees: node_degrees[tgt] += 1
-
-        gaps = []
-        for node_id, degree in node_degrees.items():
-            if degree <= 1:
-                gaps.append({
-                    "entity": node_id,
-                    "type": self.memory.nodes[node_id]["type"],
-                    "current_connections": degree,
-                    "curiosity_score": 5.0 - float(degree)
-                })
-        gaps.sort(key=lambda x: x["curiosity_score"], reverse=True)
-        return gaps
-
-    def trigger_curiosity(self, entity_id: str):
+    def act_on_curiosity(self, entity_id: str) -> dict:
         entity_id = entity_id.strip().lower()
-        if entity_id in self.memory.nodes:
-            hypo = f"giả_thuyết_tự_chủ_{int(time.time())}"
-            self.memory.add_entity(hypo, "Giả thuyết tự chủ")
-            self.memory.add_relation(entity_id, hypo, "khám phá tiềm năng", weight=3.0)
-            self.memory.save_to_file()
-            return hypo
-        return None
+        if entity_id not in self.memory.nodes:
+            return {"success": False}
+        actions = [self._generate_question, self._seek_related_concept, self._strengthen_weak_link]
+        result = random.choice(actions)(entity_id)
+        self.exploration_history.append({"target": entity_id, "action": result.get("action"), "timestamp": time.time()})
+        self.memory.save_to_file()
+        return result
 
+    def _generate_question(self, entity_id: str) -> dict:
+        questions = [f"{entity_id} liên quan đến những gì?", f"{entity_id} được dùng để làm gì?"]
+        q = random.choice(questions)
+        q_node = f"câu_hỏi_{int(time.time())}"
+        self.memory.add_entity(q_node, "Câu hỏi khám phá", {"content": q})
+        self.memory.add_relation(entity_id, q_node, "cần trả lời", weight=2.0)
+        return {"success": True, "action": "generate_question", "detail": q}
 
-# ==================== 2. KHỞI TẠO STATE ỨNG DỤNG ====================
+    def _seek_related_concept(self, entity_id: str) -> dict:
+        candidates = [n for n in self.memory.nodes if n != entity_id]
+        if not candidates:
+            return {"success": False, "action": "seek_related"}
+        related = random.choice(candidates)
+        self.memory.add_relation(entity_id, related, "có thể liên quan", weight=1.5)
+        return {"success": True, "action": "seek_related", "detail": f"Liên kết với {related}"}
+
+    def _strengthen_weak_link(self, entity_id: str) -> dict:
+        weak = [e for e in self.memory.edges if (e["source"] == entity_id or e["target"] == entity_id) and e["weight"] < 2.0]
+        if weak:
+            random.choice(weak)["weight"] = min(5.0, random.choice(weak)["weight"] + 1.0)
+            return {"success": True, "action": "strengthen", "detail": "Tăng weight"}
+        hypo = f"giả_thuyết_{int(time.time())}"
+        self.memory.add_entity(hypo, "Giả thuyết")
+        self.memory.add_relation(entity_id, hypo, "cần kiểm chứng", weight=2.0)
+        return {"success": True, "action": "create_hypothesis", "detail": hypo}
+
+    def auto_explore_once(self) -> dict:
+        ranked = self.scan_and_rank()
+        if not ranked:
+            return {"success": False, "reason": "Không có mục tiêu"}
+        target = ranked[0]["entity"]
+        result = self.act_on_curiosity(target)
+        result["target"] = target
+        result["curiosity_score"] = ranked[0]["score"]
+        return result
+
+# ==================== 4. KHỞI TẠO ====================
 if "agi_memory" not in st.session_state:
     st.session_state.agi_memory = AGIKnowledgeMemory()
-
 if "background_running" not in st.session_state:
     st.session_state.background_running = False
+if "curiosity_engine" not in st.session_state:
+    st.session_state.curiosity_engine = ImprovedCuriosityEngine(st.session_state.agi_memory)
+if "explore_log" not in st.session_state:
+    st.session_state.explore_log = []
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
 reflector = AGIReflectionLoop(memory)
-engine = AGIIntelligenceEngine(memory)
-curiosity = AGICuriosityEngine(memory)
+curiosity = st.session_state.curiosity_engine
 
-# ==================== 3. THANH ĐIỀU KHIỂN TRẠNG THÁI (SIDEBAR / HEADER) ====================
+# ==================== 5. SIDEBAR ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
-st.caption("Hệ thống Nhận thức Tự trị: Đồ thị Tri thức, Tự phản xạ, Suy luận Đa bước & Động lực Tự tò mò.")
+st.caption("Bộ nhớ tri thức + Động lực tò mò cải tiến")
 
-# Khu vực nút điều khiển chạy ngầm (Xanh / Đỏ)
-st.sidebar.header("⚙️ Điều khiển Động lực Nội tại")
-
-col_status, col_btn = st.sidebar.columns([1, 1])
-
-with col_status:
-    if st.session_state.background_running:
-        st.markdown("🟢 **ĐANG CHẠY NGẦM**", unsafe_allow_html=True)
-    else:
-        st.markdown("🔴 **ĐÃ DỪNG CHẠY**", unsafe_allow_html=True)
-
-with col_btn:
-    if st.session_state.background_running:
-        if st.button("🛑 Dừng chạy ngầm", type="primary", use_container_width=True):
-            st.session_state.background_running = False
-            st.rerun()
-    else:
-        if st.button("🟢 Bật chạy ngầm", type="secondary", use_container_width=True):
-            st.session_state.background_running = True
-            st.rerun()
+st.sidebar.header("⚙️ Điều khiển")
+if st.session_state.background_running:
+    st.sidebar.markdown("🟢 **ĐANG CHẠY NGẦM**")
+    if st.sidebar.button("🛑 Dừng", use_container_width=True):
+        st.session_state.background_running = False
+        st.rerun()
+else:
+    st.sidebar.markdown("🔴 **ĐÃ DỪNG**")
+    if st.sidebar.button("🟢 Bật chạy ngầm", use_container_width=True):
+        st.session_state.background_running = True
+        st.rerun()
 
 st.sidebar.divider()
-st.sidebar.info("💡 Khi **Bật chạy ngầm**, AGI sẽ tự động thực thi vòng lặp nhận thức, quét khoảng trống và tự giải quyết sự tò mò liên tục mà không cần bấm nút.")
+if st.session_state.explore_log:
+    st.sidebar.markdown("### Nhật ký khám phá gần nhất")
+    for log in st.session_state.explore_log[-5:]:
+        st.sidebar.caption(f"• {log}")
 
-# ==================== 4. GIAO DIỆN CHÍNH (TABS) ====================
-tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & Trích xuất", "📊 Đồ thị Tri thức", "🔍 Suy luận Đa bước", "✨ Động lực Tò mò"])
+# ==================== 6. TABS ====================
+tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu", "📊 Đồ thị", "✨ Tò mò"])
 
-# TAB 1: NHẬP LIỆU
 with tab1:
-    st.subheader("Nạp văn bản tri thức thô")
-    raw_input = st.text_area("Nhập văn bản cần phân tích:", "Hệ thống AGI sử dụng Bioacoustics để phân tích âm thanh.\nMô hình Kitsune mô phỏng Sinh vật huyền thoại.\nHệ thống AGI phát triển Mô hình Kitsune.", height=120)
-    
-    col1, col2 = st.columns(2)
-    with col1:
-        if st.button("🚀 Trích xuất & Nạp vào Bộ nhớ", use_container_width=True):
-            count = extractor.extract_and_ingest(raw_input)
-            st.success(f"Đã trích xuất thành công {count} liên kết tri thức mới!")
+    st.subheader("Nạp văn bản")
+    raw = st.text_area("Văn bản:", "Hệ thống AGI sử dụng Bioacoustics.\nMô hình Kitsune mô phỏng sinh vật.", height=100)
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("🚀 Trích xuất", use_container_width=True):
+            n = extractor.extract_and_ingest(raw)
+            st.success(f"Đã nạp {n} liên kết")
             st.rerun()
-    with col2:
-        if st.button("🧠 Kích hoạt Tự phản xạ (Dọn rác)", use_container_width=True):
-            pruned = reflector.reflect_and_optimize()
-            st.warning(f"Đã dọn dẹp và tiêu hủy {pruned} thực thể rác/cô lập!")
+    with c2:
+        if st.button("🧠 Dọn rác", use_container_width=True):
+            p = reflector.reflect_and_optimize()
+            st.warning(f"Đã xóa {p} node rác")
             st.rerun()
 
-# TAB 2: ĐỒ THỊ TRI THỨC
 with tab2:
-    st.subheader("Cấu trúc Đồ thị Tri thức (Knowledge Graph)")
-    
+    st.subheader("Đồ thị Tri thức")
     m1, m2 = st.columns(2)
-    m1.metric("Tổng Thực Thể (Nodes)", len(memory.nodes))
-    m2.metric("Tổng Mối Quan Hệ (Edges)", len(memory.edges))
-    
-    st.divider()
-    
-    col_a, col_b = st.columns(2)
-    
-    with col_a:
-        st.markdown("### 📌 Danh sách Thực thể (Entities)")
-        if memory.nodes:
-            node_data = []
-            for n_id, n_info in memory.nodes.items():
-                created = datetime.fromtimestamp(n_info.get("created_at", time.time())).strftime("%H:%M:%S %d/%m/%Y")
-                node_data.append({
-                    "Tên thực thể": n_id.upper(),
-                    "Phân loại": n_info.get("type", "Khái niệm"),
-                    "Thời gian nạp": created
-                })
-            df_nodes = pd.DataFrame(node_data)
-            st.dataframe(df_nodes, use_container_width=True, hide_index=True)
-        else:
-            st.info("Chưa có thực thể nào trong bộ nhớ.")
+    m1.metric("Nodes", len(memory.nodes))
+    m2.metric("Edges", len(memory.edges))
+    if memory.edges:
+        df = pd.DataFrame([{"Từ": e["source"], "Quan hệ": e["relation"], "Đến": e["target"], "Weight": e["weight"]} for e in memory.edges])
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
-    with col_b:
-        st.markdown("### 🔗 Danh sách Mối quan hệ (Relations)")
-        if memory.edges:
-            edge_data = []
-            for edge in memory.edges:
-                edge_data.append({
-                    "Từ thực thể": edge["source"].upper(),
-                    "Quan hệ": f"-[ {edge['relation']} ]->",
-                    "Đến thực thể": edge["target"].upper(),
-                    "Độ bền (Weight)": f"{edge['weight']:.1f}"
-                })
-            df_edges = pd.DataFrame(edge_data)
-            st.dataframe(df_edges, use_container_width=True, hide_index=True)
-        else:
-            st.info("Chưa có mối quan hệ nào giữa các thực thể.")
-
-# TAB 3: SUY LUẬN ĐA BƯỚC
 with tab3:
-    st.subheader("Động cơ Suy luận Thông minh (Multi-step Reasoning)")
-    node_list = list(memory.nodes.keys())
-    
-    if len(node_list) >= 2:
-        col_s1, col_s2 = st.columns(2)
-        with col_s1:
-            start_node = st.selectbox("Chọn thực thể điểm bắt đầu:", node_list, index=0)
-        with col_s2:
-            target_node = st.selectbox("Chọn thực thể mục tiêu:", node_list, index=min(1, len(node_list)-1))
-        
-        if st.button("🔎 Thực hiện Suy luận Đa bước", use_container_width=True):
-            result = engine.deep_smart_reasoning(start_node, target_node)
-            
-            if result["status"] == "Success":
-                st.success(f"✅ Suy luận thành công! Tổng điểm tin cậy: {result['total_confidence_score']}")
-                st.markdown("### 🧭 Chuỗi các bước suy luận chi tiết:")
-                steps = result["step_by_step_reasoning"]
-                
-                for idx, step in enumerate(steps, 1):
-                    st.info(
-                        f"**Bước {idx}:** Từ **{step['from'].upper()}** "
-                        f"bắc cầu qua quan hệ `[{step['relation']}]` "
-                        f"đến **{step['to'].upper()}** *(Trọng số: {step['weight']})*"
-                    )
-            else:
-                st.error(f"❌ {result['message']}")
-    else:
-        st.info("Cần ít nhất 2 thực thể trong bộ nhớ để thực hiện suy luận.")
-
-# TAB 4: ĐỘNG LỰC TÒ MÒ
-with tab4:
-    st.subheader("Động cơ Tự tò mò & Động lực Nội tại (Curiosity Engine)")
-    gaps = curiosity.scan_knowledge_gaps()
-    
-    if gaps:
-        st.markdown(f"**Phát hiện {len(gaps)} khoảng trống tri thức/thực thể ít liên kết cần khám phá:**")
-        
-        gap_data = []
-        for g in gaps:
-            gap_data.append({
-                "Thực thể": g["entity"].upper(),
-                "Loại thực thể": g["type"],
-                "Số liên kết hiện có": g["current_connections"],
-                "Điểm Tò mò (Curiosity)": f"⭐ {g['curiosity_score']:.1f}"
-            })
-        
-        df_gaps = pd.DataFrame(gap_data)
-        st.dataframe(df_gaps, use_container_width=True, hide_index=True)
-        
-        st.divider()
-        selected_gap = st.selectbox("Chọn khoảng trống tri thức để AGI tự hành động tò mò:", [g['entity'] for g in gaps])
-        
-        if st.button("🎯 Kích hoạt Hành vi Tự tò mò", use_container_width=True):
-            hypo_created = curiosity.trigger_curiosity(selected_gap)
-            if hypo_created:
-                st.success(f"🎉 AGI đã tự động thiết lập giả thuyết mới '{hypo_created.upper()}' và mở rộng nhận thức cho thực thể '{selected_gap.upper()}' thành công!")
+    st.subheader("Động lực Tò mò")
+    ranked = curiosity.scan_and_rank()
+    if ranked:
+        df = pd.DataFrame(ranked)
+        st.dataframe(df, use_container_width=True, hide_index=True)
+        if st.button("🎯 Khám phá ngay (thủ công)"):
+            res = curiosity.auto_explore_once()
+            if res.get("success"):
+                st.success(f"{res['target']} → {res.get('detail')}")
+                st.session_state.explore_log.append(f"{res['target']}: {res.get('detail')}")
                 st.rerun()
     else:
-        st.success("Tất cả thực thể trong bộ nhớ đều có độ liên kết vững chắc! Không có khoảng trống tò mò.")
+        st.info("Không có mục tiêu tò mò hiện tại.")
 
-# ==================== 5. VÒNG LẶP CHẠY NGẦM (BACKGROUND DAEMON LOOP) ====================
+# ==================== 7. BACKGROUND LOOP ====================
 if st.session_state.background_running:
-    # Hiển thị thông báo trạng thái đang chạy ngầm trên giao diện
-    st.toast("🤖 AGI Background Loop đang hoạt động: Quét và tự giải quyết sự tò mò...", icon="🧠")
-    
-    # Tự động thực hiện một chu trình tự học/tự tò mò
-    gaps = curiosity.scan_knowledge_gaps()
-    if gaps:
-        # Lấy khoảng trống có độ tò mò cao nhất để tự khám phá
-        target_gap = gaps[0]["entity"]
-        hypo = curiosity.trigger_curiosity(target_gap)
-        if hypo:
-            # Lưu lại log ngầm (hoặc hiển thị nhẹ)
-            time.sleep(2)  # Tạm dừng ngắn để tránh lãng phí CPU và tạo nhịp sinh học cho AGI
-            st.rerun()     # Làm mới giao diện để cập nhật đồ thị tri thức thời gian thực
-    else:
-        # Nếu không còn khoảng trống nào, tạm nghỉ để tiết kiệm tài nguyên
-        time.sleep(3)
-        st.rerun()
+    result = curiosity.auto_explore_once()
+    if result.get("success"):
+        msg = f"{result['target']} → {result.get('detail', result.get('action'))}"
+        st.toast(f"🔍 {msg}")
+        st.session_state.explore_log.append(msg)
+    time.sleep(4)
+    st.rerun()
