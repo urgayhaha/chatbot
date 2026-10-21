@@ -123,7 +123,7 @@ class AdvancedCuriosityEngine:
         self.exploration_history = []
         self.node_visit_count = {}
         self.last_exploration_time = {}
-        self.active_goals = []  # Hàng đợi mục tiêu dài hạn
+        self.active_goals = []
 
     def compute_curiosity_score(self, node_id: str) -> dict:
         if node_id not in self.memory.nodes:
@@ -131,7 +131,6 @@ class AdvancedCuriosityEngine:
         node = self.memory.nodes[node_id]
         node_type = node.get("type", "")
         
-        # Nếu thực thể đã được khám phá kỹ hoặc là tri thức ngoài, hạ điểm tò mò để giảm bất định
         if node_type in ["Giả thuyết", "Câu hỏi khám phá", "Kiến thức ngoài"]:
             return {"total": 0.1}
 
@@ -142,7 +141,6 @@ class AdvancedCuriosityEngine:
         age_hours = (time.time() - node.get("created_at", time.time())) / 3600
         scores["recency"] = max(0.0, 2.0 * (1.0 - min(age_hours / 24, 1.0)))
 
-        # Giảm điểm novelty mạnh nếu đã thăm nhiều lần (Học từ kết quả khám phá)
         times_explored = self.node_visit_count.get(node_id, 0)
         scores["novelty"] = max(0.0, 2.5 - times_explored * 1.0)
 
@@ -157,8 +155,6 @@ class AdvancedCuriosityEngine:
         scores["weak_links"] = min(1.5, weak_links * 0.5)
 
         raw_total = sum(scores.values())
-        
-        # Phạt thời gian hồi (cooldown) để tránh lặp vô hạn mục tiêu vừa xét
         if node_id in self.last_exploration_time and time.time() - self.last_exploration_time[node_id] < 60:
             raw_total *= 0.1
 
@@ -180,12 +176,10 @@ class AdvancedCuriosityEngine:
         return results[:top_k]
 
     def update_long_term_goals(self):
-        """Duy trì và cập nhật danh sách mục tiêu dài hạn dựa trên điểm tò mò cao"""
         ranked = self.scan_and_rank(top_k=5)
         self.active_goals = [r["entity"] for r in ranked if r["score"] > 2.0]
 
     def fetch_wikipedia_knowledge(self, query: str) -> dict:
-        """Cào tri thức từ Internet và thực hiện giảm bất định (Uncertainty Reduction)"""
         try:
             url = f"https://vi.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json"
             headers = {"User-Agent": "AGICognitiveBot/1.0"}
@@ -197,7 +191,6 @@ class AdvancedCuriosityEngine:
                 title = search_results[0]["title"]
                 snippet = re.sub(r'<.*?>', '', search_results[0]["snippet"])
                 
-                # Học từ kết quả: chuyển đổi loại thực thể thô thành đã được tích hợp
                 if query in self.memory.nodes:
                     self.memory.nodes[query]["type"] = "Tri thức đã kiểm chứng"
 
@@ -215,12 +208,10 @@ class AdvancedCuriosityEngine:
         if not self.active_goals:
             return {"success": False, "reason": "Không có mục tiêu dài hạn nào cần giải quyết"}
         
-        # Chọn mục tiêu hàng đầu từ hàng đợi dài hạn
         target = self.active_goals[0]
         self.node_visit_count[target] = self.node_visit_count.get(target, 0) + 1
         self.last_exploration_time[target] = time.time()
 
-        # Thực hiện cào dữ liệu và học tập
         res = self.fetch_wikipedia_knowledge(target)
         if not res.get("success"):
             candidates = [n for n in self.memory.nodes if n != target]
@@ -232,26 +223,28 @@ class AdvancedCuriosityEngine:
         self.exploration_history.append({"target": target, "action": res.get("action"), "timestamp": time.time()})
         self.memory.save_to_file()
         
-        # Lấy điểm tò mò hiện tại sau khi đã cập nhật
         current_score = self.compute_curiosity_score(target)["total"]
         res["target"] = target
         res["curiosity_score"] = current_score
         return res
 
-# ==================== 5. KHỞI TẠO TRẠNG THÁI ====================
+# ==================== 5. KHỞI TẠO TRẠNG THÁI AN TOÀN ====================
 if "agi_memory" not in st.session_state:
     st.session_state.agi_memory = AGIKnowledgeMemory()
 if "background_running" not in st.session_state:
     st.session_state.background_running = False
-if "curiosity_engine" not in st.session_state:
-    st.session_state.curiosity_engine = AdvancedCuriosityEngine(st.session_state.agi_memory)
+
+# Sử dụng khóa mới v2 để tránh xung đột cache session state cũ
+if "curiosity_engine_v2" not in st.session_state:
+    st.session_state.curiosity_engine_v2 = AdvancedCuriosityEngine(st.session_state.agi_memory)
+
 if "explore_log" not in st.session_state:
     st.session_state.explore_log = []
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
 reflector = AGIReflectionLoop(memory)
-curiosity = st.session_state.curiosity_engine
+curiosity = st.session_state.curiosity_engine_v2
 
 # ==================== 6. GIAO DIỆN DASHBOARD ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
@@ -314,7 +307,7 @@ with tab2:
     c2.metric("Tổng Mối quan hệ (Edges)", len(memory.edges))
     
     st.divider()
-    st.markdown("### 📌 Bảng chi tiết thực thể & Chỉ số Tò mò (Đã cập nhật trạng thái giảm bất định)")
+    st.markdown("### 📌 Bảng chi tiết thực thể & Chỉ số Tò mò")
     
     ranked_nodes = curiosity.scan_and_rank(top_k=100)
     if ranked_nodes:
