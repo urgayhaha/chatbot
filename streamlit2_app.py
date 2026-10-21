@@ -5,6 +5,7 @@ import time
 import re
 import pandas as pd
 import random
+import requests
 from datetime import datetime
 
 st.set_page_config(page_title="AGI Cognitive Dashboard", page_icon="🧠", layout="wide")
@@ -114,7 +115,7 @@ class AGIReflectionLoop:
         self.memory.save_to_file()
         return pruned
 
-# ==================== 4. CURIOSITY ENGINE (thang 0-10) ====================
+# ==================== 4. CURIOSITY ENGINE (TÍCH HỢP INTERNET & WORLD DATA) ====================
 class ImprovedCuriosityEngine:
     def __init__(self, memory_system):
         self.memory = memory_system
@@ -128,7 +129,7 @@ class ImprovedCuriosityEngine:
             return {"total": 0.0}
         node = self.memory.nodes[node_id]
         node_type = node.get("type", "")
-        if node_type in ["Giả thuyết", "Câu hỏi khám phá", "Giả thuyết tự chủ"]:
+        if node_type in ["Giả thuyết", "Câu hỏi khám phá", "Giả thuyết tự chủ", "Kiến thức ngoài"]:
             return {"total": 0.0}
 
         scores = {}
@@ -155,7 +156,6 @@ class ImprovedCuriosityEngine:
         if node_id in self.last_exploration_time and time.time() - self.last_exploration_time[node_id] < 120:
             raw_total *= 0.3
 
-        # Chuẩn hóa về thang 0-10 (max lý thuyết = 12.5)
         scores["total"] = round(min(10.0, max(0.0, raw_total / 1.25)), 2)
         return scores
 
@@ -191,6 +191,29 @@ class ImprovedCuriosityEngine:
             return False
         return True
 
+    # --- KẾT NỐI INTERNET / WIKIPEDIA API THẬT ---
+    def fetch_wikipedia_knowledge(self, query: str) -> dict:
+        """Tự động truy vấn Wikipedia API để lấy tri thức ngoại vi"""
+        try:
+            url = f"https://vi.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json"
+            headers = {"User-Agent": "AGICognitiveBot/1.0"}
+            response = requests.get(url, headers=headers, timeout=5)
+            data = response.json()
+            search_results = data.get("query", {}).get("search", [])
+            
+            if search_results:
+                title = search_results[0]["title"]
+                snippet = re.sub(r'<.*?>', '', search_results[0]["snippet"]) # Xóa thẻ HTML tag
+                
+                # Nạp thông tin này vào bộ nhớ AGI dưới dạng "Kiến thức ngoài"
+                external_node = f"wiki_{title.lower().replace(' ', '_')}"
+                self.memory.add_entity(external_node, "Kiến thức ngoài", {"source": "Wikipedia", "snippet": snippet})
+                self.memory.add_relation(query, external_node, "khám phá được từ internet", weight=3.5)
+                return {"success": True, "action": "fetch_internet", "detail": f"Đọc được từ Wikipedia mục '{title}': {snippet[:100]}..."}
+        except Exception as e:
+            pass
+        return {"success": False, "action": "fetch_internet", "detail": "Không thể kết nối Internet hoặc không tìm thấy dữ liệu."}
+
     def act_on_curiosity(self, entity_id: str) -> dict:
         entity_id = entity_id.strip().lower()
         if entity_id not in self.memory.nodes:
@@ -198,29 +221,18 @@ class ImprovedCuriosityEngine:
         self.node_visit_count[entity_id] = self.node_visit_count.get(entity_id, 0) + 1
         self.last_exploration_time[entity_id] = time.time()
 
-        hypo_count = self.hypothesis_count.get(entity_id, 0)
-        actions = [self._seek_related_concept, self._strengthen_weak_link] if hypo_count >= 2 else \
-                  [self._seek_related_concept, self._generate_question, self._strengthen_weak_link]
-        result = random.choice(actions)(entity_id)
-        if result.get("action") == "create_hypothesis":
-            self.hypothesis_count[entity_id] = hypo_count + 1
+        # Thêm lựa chọn hành động: 50% cơ hội gọi internet tìm hiểu sâu nếu thực thể quá cô lập hoặc chưa rõ
+        actions = [self.fetch_wikipedia_knowledge, self._seek_related_concept, self._strengthen_weak_link]
+        chosen_action = random.choice(actions)
+        
+        result = chosen_action(entity_id)
         self.exploration_history.append({"target": entity_id, "action": result.get("action"), "timestamp": time.time()})
         self.memory.save_to_file()
         return result
 
-    def _generate_question(self, entity_id: str) -> dict:
-        questions = [f"{entity_id} liên quan đến những khái niệm nào khác?",
-                     f"{entity_id} có chức năng gì?",
-                     f"Có thể kết hợp {entity_id} với cái gì?"]
-        q = random.choice(questions)
-        q_node = f"câu_hỏi_{int(time.time()) % 100000}"
-        self.memory.add_entity(q_node, "Câu hỏi khám phá", {"content": q})
-        self.memory.add_relation(entity_id, q_node, "cần trả lời", weight=2.0)
-        return {"success": True, "action": "generate_question", "detail": q}
-
     def _seek_related_concept(self, entity_id: str) -> dict:
         candidates = [n for n, info in self.memory.nodes.items()
-                      if n != entity_id and info.get("type") not in ["Giả thuyết", "Câu hỏi khám phá", "Giả thuyết tự chủ"]]
+                      if n != entity_id and info.get("type") not in ["Giả thuyết", "Câu hỏi khám phá", "Kiến thức ngoài"]]
         if not candidates:
             return {"success": False, "action": "seek_related"}
         related = random.choice(candidates)
@@ -228,7 +240,7 @@ class ImprovedCuriosityEngine:
                      (e["source"] == related and e["target"] == entity_id) for e in self.memory.edges)
         if not exists:
             self.memory.add_relation(entity_id, related, "có thể liên quan", weight=1.5)
-            return {"success": True, "action": "seek_related", "detail": f"Liên kết với {related}"}
+            return {"success": True, "action": "seek_related", "detail": f"Liên kết nội bộ với {related}"}
         return {"success": False, "action": "seek_related"}
 
     def _strengthen_weak_link(self, entity_id: str) -> dict:
@@ -236,13 +248,12 @@ class ImprovedCuriosityEngine:
         if weak:
             edge = random.choice(weak)
             edge["weight"] = min(5.0, edge["weight"] + 0.5)
-            return {"success": True, "action": "strengthen", "detail": f"Tăng weight '{edge['relation']}'"}
-        if self.hypothesis_count.get(entity_id, 0) < 2:
-            hypo = f"giả_thuyết_{int(time.time()) % 100000}"
-            self.memory.add_entity(hypo, "Giả thuyết")
-            self.memory.add_relation(entity_id, hypo, "cần kiểm chứng", weight=2.0)
-            return {"success": True, "action": "create_hypothesis", "detail": hypo}
-        return {"success": False, "action": "none"}
+            return {"success": True, "action": "strengthen", "detail": f"Củng cố liên kết '{edge['relation']}'"}
+        
+        hypo = f"giả_thuyết_{int(time.time()) % 100000}"
+        self.memory.add_entity(hypo, "Giả thuyết")
+        self.memory.add_relation(entity_id, hypo, "cần kiểm chứng", weight=2.0)
+        return {"success": True, "action": "create_hypothesis", "detail": f"Tạo giả thuyết {hypo}"}
 
     def auto_explore_once(self) -> dict:
         if not self.should_explore():
@@ -285,7 +296,7 @@ curiosity = st.session_state.curiosity_engine
 
 # ==================== 6. GIAO DIỆN ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
-st.caption("Curiosity Score (thang 0–10)")
+st.caption("Mở rộng: Tích hợp Internet (Wikipedia API) & Đọc file Local")
 
 st.sidebar.header("⚙️ Điều khiển")
 if st.session_state.background_running:
@@ -301,15 +312,26 @@ else:
 
 st.sidebar.divider()
 if st.session_state.explore_log:
-    st.sidebar.markdown("### Nhật ký")
+    st.sidebar.markdown("### Nhật ký hành động")
     for log in reversed(st.session_state.explore_log[-6:]):
         st.sidebar.caption(f"• {log}")
 
-tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu", "📊 Đồ thị", "✨ Tò mò"])
+tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & File Local", "📊 Đồ thị", "✨ Tò mò & Internet", "🤖 Tích hợp LLM / Hỏi đáp"])
 
 with tab1:
-    st.subheader("Nạp văn bản")
-    raw = st.text_area("Văn bản:", "Hệ thống AGI sử dụng Bioacoustics.\nMô hình Kitsune mô phỏng sinh vật.", height=100)
+    st.subheader("Nạp văn bản hoặc Tệp tin Local (.txt, .md)")
+    
+    # 1. Đọc file local
+    uploaded_file = st.file_uploader("Tải lên file dữ liệu local:", type=["txt", "md", "json"])
+    if uploaded_file is not None:
+        file_content = uploaded_file.read().decode("utf-8")
+        if st.button("📂 Trích xuất nội dung từ File Local", use_container_width=True):
+            n = extractor.extract_and_ingest(file_content)
+            st.success(f"Đã đọc file và trích xuất thành công {n} liên kết tri thức!")
+            st.rerun()
+
+    st.divider()
+    raw = st.text_area("Hoặc nhập văn bản thô:", "Hệ thống AGI sử dụng Bioacoustics.\nMô hình Kitsune mô phỏng sinh vật.", height=100)
     c1, c2 = st.columns(2)
     with c1:
         if st.button("🚀 Trích xuất", use_container_width=True):
@@ -331,7 +353,7 @@ with tab2:
         st.dataframe(df, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("Curiosity Score (0–10)")
+    st.subheader("Curiosity Score & Khám phá Internet (Wikipedia API)")
     ranked = curiosity.scan_and_rank()
     if ranked:
         for item in ranked[:8]:
@@ -339,16 +361,27 @@ with tab3:
                 st.write(f"Loại: `{item.get('type')}`")
                 if item.get("breakdown"):
                     st.json(item["breakdown"])
-        c1, c2 = st.columns(2)
+        c1, c2, c3 = st.columns(3)
         with c1:
-            if st.button("🎯 Khám phá ngay", use_container_width=True):
+            if st.button("🎯 Khám phá tự chủ", use_container_width=True):
                 res = curiosity.auto_explore_once()
                 if res.get("success"):
-                    msg = f"{res.get('target')} → {res.get('detail','')}"
+                    msg = f"[{res.get('action')}] {res.get('target')} → {res.get('detail','')}"
                     st.success(msg)
                     st.session_state.explore_log.append(msg)
                     st.rerun()
         with c2:
+            if st.button("🌍 Cào tri thức Internet", use_container_width=True):
+                if ranked:
+                    top_node = ranked[0]["entity"]
+                    res = curiosity.fetch_wikipedia_knowledge(top_node)
+                    if res.get("success"):
+                        st.success(res.get("detail"))
+                        st.session_state.explore_log.append(res.get("detail"))
+                        st.rerun()
+                    else:
+                        st.error("Không tìm thấy thông tin trên Wikipedia cho thực thể này.")
+        with c3:
             if st.button("🗑️ Dọn giả thuyết", use_container_width=True):
                 n = curiosity.cleanup_old_hypotheses()
                 st.warning(f"Đã xóa {n}")
@@ -356,11 +389,31 @@ with tab3:
     else:
         st.info("Không có mục tiêu hiện tại.")
 
+with tab4:
+    st.subheader("Trợ lý LLM / Hỏi đáp tri thức AGI")
+    st.info("Mô phỏng tích hợp LLM để phân tích và trả lời các câu hỏi dựa trên đồ thị tri thức hiện tại.")
+    
+    user_query = st.text_input("Đặt câu hỏi cho AGI (VD: AGI liên quan đến cái gì?):")
+    if user_query:
+        query_lower = user_query.lower()
+        matched_edges = [e for e in memory.edges if query_lower in e["source"] or query_lower in e["target"]]
+        matched_nodes = [n for n in memory.nodes if query_lower in n]
+        
+        st.markdown("### 🤖 AGI Trả lời:")
+        if matched_edges or matched_nodes:
+            st.write(f"Dựa vào trí nhớ dài hạn, tôi tìm thấy các thông tin sau:")
+            for node in matched_nodes:
+                st.markdown(- **Thực thể:** `{node}` (Loại: `{memory.nodes[node].get('type')}`)")
+            for edge in matched_edges:
+                st.markdown(- `{edge['source']}` **{edge['relation']}** `{edge['target']}` *(Trọng số: {edge['weight']})*")
+        else:
+            st.warning("Tôi chưa có dữ liệu cụ thể về câu hỏi này trong trí nhớ. Bạn có thể dùng tính năng **'Cào tri thức Internet'** ở Tab Tò mò để tôi tìm kiếm bên ngoài!")
+
 # ==================== 7. BACKGROUND ====================
 if st.session_state.background_running:
     result = curiosity.auto_explore_once()
     if result.get("success"):
-        msg = f"{result.get('target')} → {result.get('detail','')}"
+        msg = f"[{result.get('action')}] {result.get('target')} → {result.get('detail','')}"
         st.toast(f"🔍 {msg}")
         st.session_state.explore_log.append(msg)
     time.sleep(5)
