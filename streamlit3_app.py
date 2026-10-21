@@ -101,38 +101,46 @@ class AGIKnowledgeExtractor:
         self.memory.save_to_file()
         return count
 
-# ==================== 3. WORLD MODEL ỔN ĐỊNH & NHÂN QUẢ ====================
+# ==================== 3. WORLD MODEL TỰ ĐỘNG NHẬN DIỆN & DỰ ĐOÁN ====================
 class AGIWorldModel:
-    """Mô hình thế giới giả lập nhân quả và dự đoán hệ quả hành động"""
     def __init__(self, memory_system):
         self.memory = memory_system
         self.causal_rules = {
-            "fetch_internet": {"predicted_outcome": "Giảm độ bất định, tăng liên kết thực tế", "success_probability": 0.85},
-            "internal_goal_link": {"predicted_outcome": "Củng cố cấu trúc đồ thị nội bộ", "success_probability": 0.70},
-            "create_hypothesis": {"predicted_outcome": "Mở rộng không gian tìm kiếm giả thuyết", "success_probability": 0.60}
+            "fetch_internet": {"description": "Cào tri thức từ Internet", "predicted_outcome": "Giảm độ bất định, mở rộng dữ liệu thực tế", "success_prob": 0.85},
+            "internal_goal_link": {"description": "Liên kết mục tiêu nội bộ", "predicted_outcome": "Củng cố cấu trúc đồ thị nhận thức", "success_prob": 0.75},
+            "create_hypothesis": {"description": "Tạo giả thuyết nhận thức", "predicted_outcome": "Mở rộng không gian suy luận giả định", "success_prob": 0.60}
         }
 
-    def simulate_action(self, action_type: str, target_entity: str) -> dict:
-        """Mô phỏng trước hệ quả (Counterfactual Simulation) trước khi thực thi"""
-        rule = self.causal_rules.get(action_type, {"predicted_outcome": "Không xác định", "success_probability": 0.5})
-        
-        # Đánh giá rủi ro dựa trên số lượng liên kết hiện tại của thực thể
-        degree = sum(1 for e in self.memory.edges if e["source"] == target_entity or e["target"] == target_entity)
-        risk_score = max(0.05, 1.0 - (degree * 0.2))
-        
-        simulated_success = random.random() < (rule["success_probability"] * (1.0 - risk_score * 0.3))
-        
+    def auto_decide_action(self, node_id: str) -> str:
+        """Tự động nhận diện tình trạng thực thể để chọn hành động phù hợp nhất"""
+        degree = sum(1 for e in self.memory.edges if e["source"] == node_id or e["target"] == node_id)
+        node_info = self.memory.nodes.get(node_id, {})
+        node_type = node_info.get("type", "")
+
+        if degree <= 1 or node_type == "Khái niệm thô":
+            return "fetch_internet"  # Cô lập hoặc thô thì cần cào internet bổ sung
+        elif degree <= 3:
+            return "internal_goal_link" # Có liên kết vừa phải thì kết nối nội bộ
+        else:
+            return "create_hypothesis" # Đã phong phú thì tạo giả thuyết suy luận sâu
+
+    def simulate_and_predict(self, node_id: str) -> dict:
+        """Tự động nhận diện hành động và dự đoán hệ quả, rủi ro"""
+        chosen_action = self.auto_decide_action(node_id)
+        rule = self.causal_rules[chosen_action]
+
+        degree = sum(1 for e in self.memory.edges if e["source"] == node_id or e["target"] == node_id)
+        risk_score = round(max(0.05, 1.0 - (degree * 0.25)), 2)
+        simulated_success = random.random() < (rule["success_prob"] * (1.0 - risk_score * 0.2))
+
         return {
-            "action": action_type,
-            "target": target_entity,
+            "target": node_id,
+            "detected_action": chosen_action,
+            "action_description": rule["description"],
             "predicted_outcome": rule["predicted_outcome"],
-            "estimated_risk": round(risk_score, 2),
+            "estimated_risk": risk_score,
             "simulated_success": simulated_success
         }
-
-    def compute_prediction_error(self, expected_value: float, actual_value: float) -> float:
-        """Tính sai số dự đoán (Prediction Error) theo nguyên lý suy luận chủ động"""
-        return round(abs(expected_value - actual_value), 2)
 
 # ==================== 4. ĐỘNG CƠ TÒ MÒ TÍCH HỢP WORLD MODEL ====================
 class AdvancedCuriosityEngine:
@@ -188,8 +196,7 @@ class AdvancedCuriosityEngine:
             results.append({
                 "entity": node_id,
                 "score": total,
-                "type": self.memory.nodes[node_id].get("type", "Unknown"),
-                "breakdown": {k: round(v, 2) for k, v in detail.items() if k != "total"}
+                "type": self.memory.nodes[node_id].get("type", "Unknown")
             })
         results.sort(key=lambda x: x["score"], reverse=True)
         return results[:top_k]
@@ -229,34 +236,39 @@ class AdvancedCuriosityEngine:
         
         target = self.active_goals[0]
         
-        # 1. Chạy World Model mô phỏng trước hành động
-        action_candidate = "fetch_internet" if random.random() > 0.3 else "internal_goal_link"
-        simulation = self.world_model.simulate_action(action_candidate, target)
+        # World Model tự động nhận diện hành động và mô phỏng dự đoán
+        prediction = self.world_model.simulate_and_predict(target)
         
         self.node_visit_count[target] = self.node_visit_count.get(target, 0) + 1
         self.last_exploration_time[target] = time.time()
 
-        if simulation["simulated_success"]:
-            if action_candidate == "fetch_internet":
+        if prediction["simulated_success"]:
+            action_type = prediction["detected_action"]
+            if action_type == "fetch_internet":
                 res = self.fetch_wikipedia_knowledge(target)
-            else:
+            elif action_type == "internal_goal_link":
                 candidates = [n for n in self.memory.nodes if n != target]
                 if candidates:
                     related = random.choice(candidates)
-                    self.memory.add_relation(target, related, "liên kết mô phỏng", weight=2.5)
+                    self.memory.add_relation(target, related, "liên kết nhận thức", weight=2.5)
                     res = {"success": True, "action": "internal_goal_link", "detail": f"Liên kết nhân quả nội bộ với {related}"}
                 else:
                     res = self.fetch_wikipedia_knowledge(target)
+            else:
+                hypo = f"gia_thuyet_{int(time.time()) % 10000}"
+                self.memory.add_entity(hypo, "Giả thuyết")
+                self.memory.add_relation(target, hypo, "cần kiểm chứng", weight=2.0)
+                res = {"success": True, "action": "create_hypothesis", "detail": f"Tự sinh giả thuyết {hypo}"}
         else:
-            res = {"success": True, "action": "world_model_skip", "detail": f"World Model đánh giá rủi ro cao ({simulation['estimated_risk']}), bỏ qua hành động."}
+            res = {"success": True, "action": "world_model_skip", "detail": f"World Model dự đoán rủi ro cao ({prediction['estimated_risk']}), tạm hoãn hành động."}
 
-        self.exploration_history.append({"target": target, "simulation": simulation, "timestamp": time.time()})
+        self.exploration_history.append({"target": target, "prediction": prediction, "timestamp": time.time()})
         self.memory.save_to_file()
         
         current_score = self.compute_curiosity_score(target)["total"]
         res["target"] = target
         res["curiosity_score"] = current_score
-        res["simulation_info"] = simulation
+        res["prediction_info"] = prediction
         return res
 
 # ==================== 5. KHỞI TẠO TRẠNG THÁI ====================
@@ -268,8 +280,8 @@ if "background_running" not in st.session_state:
 if "world_model" not in st.session_state:
     st.session_state.world_model = AGIWorldModel(st.session_state.agi_memory)
 
-if "curiosity_engine_v3" not in st.session_state:
-    st.session_state.curiosity_engine_v3 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model)
+if "curiosity_engine_v4" not in st.session_state:
+    st.session_state.curiosity_engine_v4 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model)
 
 if "explore_log" not in st.session_state:
     st.session_state.explore_log = []
@@ -277,15 +289,15 @@ if "explore_log" not in st.session_state:
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
 world_model = st.session_state.world_model
-curiosity = st.session_state.curiosity_engine_v3
+curiosity = st.session_state.curiosity_engine_v4
 
 # ==================== 6. GIAO DIỆN DASHBOARD ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
-st.caption("Kiến trúc đỉnh cao: Động lực nội tại + World Model Ổn định & Nhân quả")
+st.caption("Kiến trúc đỉnh cao: Động lực nội tại + World Model Tự động nhận diện & Dự đoán nhân quả")
 
 st.sidebar.header("⚙️ Điều khiển hệ thống")
 if st.session_state.background_running:
-    st.sidebar.markdown("🟢 **ĐANG CHẠY NGẦM + WORLD MODEL**")
+    st.sidebar.markdown("🟢 **ĐANG CHẠY NGẦM TỰ NHẬN DIỆN**")
     if st.sidebar.button("🛑 Dừng chạy ngầm", use_container_width=True):
         st.session_state.background_running = False
         st.rerun()
@@ -307,7 +319,7 @@ if st.session_state.explore_log:
     for log in reversed(st.session_state.explore_log[-5:]):
         st.sidebar.caption(f"• {log}")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & File", "📊 Đồ thị Tri thức", "🌍 World Model & Nhân quả", "🤖 Trợ lý LLM"])
+tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & File", "📊 Đồ thị Tri thức", "🌍 World Model Tự Động", "🤖 Trợ lý LLM"])
 
 with tab1:
     st.subheader("Nạp văn bản hoặc Tệp tin Local")
@@ -342,20 +354,28 @@ with tab2:
         st.dataframe(df_nodes, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("🌍 Mô phỏng Nhân quả & Đánh giá Rủi ro (World Model Simulator)")
-    st.info("Kiểm tra khả năng mô phỏng trước hành động của World Model đối với các thực thể trong bộ nhớ.")
+    st.subheader("🌍 World Model: Tự động Nhận diện & Dự đoán Hệ quả")
+    st.info("Hệ thống sẽ tự động phân tích trạng thái thực thể, tự chọn hành động và diễn giải dự đoán bằng ngôn ngữ tự nhiên.")
     
     node_keys = list(memory.nodes.keys())
     if node_keys:
-        selected_node = st.selectbox("Chọn thực thể để giả lập hành động:", node_keys)
-        action_choice = st.selectbox("Chọn hành động giả lập:", ["fetch_internet", "internal_goal_link", "create_hypothesis"])
+        selected_node = st.selectbox("Chọn thực thể để AGI tự nhận diện & dự đoán:", node_keys)
         
-        if st.button("🧪 Chạy mô phỏng Counterfactual", use_container_width=True):
-            sim_result = world_model.simulate_action(action_choice, selected_node)
-            st.success("✅ Mô phỏng hoàn tất!")
-            st.json(sim_result)
+        if st.button("🔮 AGI Tự Nhận Diện & Dự Đoán Hành Động", use_container_width=True):
+            pred = world_model.simulate_and_predict(selected_node)
+            
+            st.markdown("### 📝 Kết quả Phân tích & Dự đoán từ World Model:")
+            st.markdown(f"- **Thực thể phân tích:** `{pred['target'].upper()}`")
+            st.markdown(f"- **Hành động hệ thống tự nhận diện:** `{pred['detected_action']}` *({pred['action_description']})*")
+            st.markdown(f"- **Hệ quả dự kiến:** {pred['predicted_outcome']}")
+            st.markdown(f"- **Chỉ số rủi ro ước tính:** `{pred['estimated_risk']}`")
+            
+            if pred['simulated_success']:
+                st.success(f"✅ **Dự đoán:** Hành động khả thi và an toàn để thực thi!")
+            else:
+                st.warning(f"⚠️ **Dự đoán:** Rủi ro cao, hệ thống sẽ tự động hoãn hành động này.")
     else:
-        st.warning("Chưa có thực thể trong bộ nhớ để mô phỏng.")
+        st.warning("Chưa có thực thể trong bộ nhớ để phân tích.")
 
 with tab4:
     st.subheader("Trợ lý LLM / Hỏi đáp tri thức AGI")
@@ -373,8 +393,8 @@ with tab4:
 if st.session_state.background_running:
     result = curiosity.auto_explore_once()
     if result.get("success"):
-        sim_info = result.get("simulation_info", {})
-        msg = f"[{result.get('action')}] Mục tiêu '{result.get('target').upper()}' | Rủi ro giả lập: {sim_info.get('estimated_risk')} → {result.get('detail','')}"
+        pred_info = result.get("prediction_info", {})
+        msg = f"Tự nhận diện [{pred_info.get('detected_action')}] cho '{result.get('target').upper()}' | Rủi ro: {pred_info.get('estimated_risk')} → {result.get('detail','')}"
         st.toast(f"🌍 {msg}")
         st.session_state.explore_log.append(msg)
     time.sleep(5)
