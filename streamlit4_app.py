@@ -104,7 +104,6 @@ class AGIKnowledgeExtractor:
 
 # ==================== 3. WORLD MODEL & BỘ ĐIỀU KHIỂN PHẢN ỨNG TỰ ĐỘNG ====================
 class AGIReactionController:
-    """Động cơ đưa ra quyết định phản ứng & can thiệp khẩn cấp dựa trên rủi ro World Model"""
     def evaluate_and_react(self, risk_score: float, domain: str) -> dict:
         if risk_score >= 0.75:
             return {
@@ -160,8 +159,9 @@ class AGIWorldModel:
             }}
             """
             
+            # Đã cập nhật sang model gemini-3.8-flash chuẩn
             response = client.models.generate_content(
-                model='gemini-2.5-flash',
+                model='gemini-3.8-flash',
                 contents=prompt,
             )
             
@@ -173,7 +173,6 @@ class AGIWorldModel:
             data["target"] = node_id
             data["simulated_success"] = True
             
-            # Tự động gắn kết quả phản ứng từ AGIReactionController
             risk = float(data.get("estimated_risk", 0.0))
             data["reaction"] = self.reaction_controller.evaluate_and_react(risk, data.get("domain", ""))
             
@@ -225,108 +224,23 @@ if "agi_memory" not in st.session_state:
 if "background_running" not in st.session_state:
     st.session_state.background_running = False
 
-if "world_model_ai_v4" not in st.session_state:
-    st.session_state.world_model_ai_v4 = AGIWorldModel(st.session_state.agi_memory)
+if "world_model_ai_v5" not in st.session_state:
+    st.session_state.world_model_ai_v5 = AGIWorldModel(st.session_state.agi_memory)
 
-if "curiosity_engine_ai_v4" not in st.session_state:
-    st.session_state.curiosity_engine_ai_v4 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v4)
+if "curiosity_engine_ai_v5" not in st.session_state:
+    st.session_state.curiosity_engine_ai_v5 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v5)
 
 if "explore_log" not in st.session_state:
     st.session_state.explore_log = []
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
-world_model = st.session_state.world_model_ai_v4
-curiosity = st.session_state.curiosity_engine_ai_v4
+world_model = st.session_state.world_model_ai_v5
+curiosity = st.session_state.curiosity_engine_ai_v5
 
 # ==================== 6. GIAO DIỆN DASHBOARD ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
 st.caption("Kiến trúc đỉnh cao: Động lực nội tại + World Model + Cơ chế Tự động Phản ứng & Can thiệp")
 
 st.sidebar.header("⚙️ Cấu hình AI & Hệ thống")
-gemini_api_key = st.sidebar.text_input("🔑 Nhập Gemini API Key:", type="password", help="Nhập khóa API để AI phân tích World Model trực tiếp.")
-
-if st.sidebar.button("🛑 Dừng chạy ngầm" if st.session_state.background_running else "🟢 Bật chạy ngầm", use_container_width=True):
-    st.session_state.background_running = not st.session_state.background_running
-    st.rerun()
-
-tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & File", "📊 Đồ thị Tri thức", "🌍 AI World Model & Phản ứng", "🤖 Trợ lý LLM"])
-
-with tab1:
-    st.subheader("Nạp văn bản hoặc Tệp tin Local")
-    raw = st.text_area("Nhập sự việc/thực thể cần phân tích:", "Con mèo đang băng qua đường nhưng nhiều xe cộ đang di chuyển rất nhanh.", height=100)
-    if st.button("🚀 Trích xuất vào Đồ thị", use_container_width=True):
-        n = extractor.extract_and_ingest(raw)
-        st.success(f"Đã nạp {n} thực thể vào bộ nhớ tri thức!")
-        st.rerun()
-
-with tab2:
-    st.subheader("Bảng Đồ thị Tri thức")
-    c1, c2 = st.columns(2)
-    c1.metric("Tổng Thực thể (Nodes)", len(memory.nodes))
-    c2.metric("Tổng Mối quan hệ (Edges)", len(memory.edges))
-    
-    ranked_nodes = curiosity.scan_and_rank(top_k=50)
-    if ranked_nodes:
-        df_nodes = pd.DataFrame([{
-            "Thực thể": item["entity"].upper(),
-            "Phân loại": item["type"],
-        } for item in ranked_nodes])
-        st.dataframe(df_nodes, use_container_width=True, hide_index=True)
-
-with tab3:
-    st.subheader("🌍 AI World Model: Mô phỏng & Phản ứng Tự động")
-    st.info("Hệ thống phân tích rủi ro vật lý và tự động đưa ra chính sách can thiệp (Intervention Policy) thời gian thực.")
-    
-    node_keys = list(memory.nodes.keys())
-    if node_keys:
-        selected_node = st.selectbox("Chọn thực thể để mô phỏng & phản ứng:", node_keys)
-        
-        if st.button("🔮 Chạy Mô Phỏng & Kích Hoạt Phản Ứng AGI", use_container_width=True):
-            if not gemini_api_key:
-                st.error("⚠️ Vui lòng nhập Gemini API Key ở thanh sidebar bên trái trước khi chạy phân tích AI!")
-            else:
-                with st.spinner("🤖 Gemini AI đang mô phỏng thế giới và tính toán phản ứng khẩn cấp..."):
-                    pred = world_model.simulate_with_ai(selected_node, gemini_api_key)
-                
-                st.markdown("### 📝 Kết quả Phân tích & Phản ứng Tự động từ AGI:")
-                st.markdown(f"- **Thực thể phân tích:** `{pred.get('target', '').upper()}`")
-                st.markdown(f"- **Lĩnh vực nhận diện:** `{pred.get('domain')}`")
-                st.markdown(f"- **Hành động cốt lõi:** `{pred.get('detected_action')}` *({pred.get('action_description')})*")
-                st.markdown(f"- **Hệ quả dự kiến & Quỹ đạo mô phỏng:** **{pred.get('predicted_outcome')}**")
-                st.markdown(f"- **Chỉ số rủi ro ước tính:** `{pred.get('estimated_risk')}`")
-                
-                # Hiển thị khối phản ứng tự động
-                reaction = pred.get('reaction', {})
-                level = reaction.get('level', 'UNKNOWN')
-                policy = reaction.get('policy', '')
-                action = reaction.get('action', '')
-                
-                if reaction.get('color') == 'red':
-                    st.error(f"🚨 **PHẢN ỨNG KHẨN CẤP [{level}]**: Lệnh hành động `{action}` — {policy}")
-                elif reaction.get('color') == 'orange':
-                    st.warning(f"⚠️ **CẢNH BÁO GIÁM SÁT [{level}]**: Lệnh hành động `{action}` — {policy}")
-                else:
-                    st.success(f"✅ **VẬN HÀNH AN TOÀN [{level}]**: Lệnh hành động `{action}` — {policy}")
-    else:
-        st.warning("Chưa có thực thể trong bộ nhớ. Hãy sang tab 'Nhập liệu' để thêm sự việc.")
-
-with tab4:
-    st.subheader("Trợ lý LLM / Hỏi đáp tri thức AGI")
-    user_query = st.text_input("Đặt câu hỏi cho AGI:")
-    if user_query:
-        query_lower = user_query.lower()
-        matched_nodes = [n for n in memory.nodes if query_lower in n]
-        if matched_nodes:
-            for node in matched_nodes:
-                st.markdown(f"- Phát hiện thực thể: `{node.upper()}` trong bộ nhớ trí tuệ.")
-        else:
-            st.warning("Không tìm thấy trong bộ nhớ dài hạn.")
-
-# ==================== 7. VÒNG LẶP NGẦM ====================
-if st.session_state.background_running:
-    result = curiosity.auto_explore_once()
-    if result.get("success"):
-        st.toast(f"🌍 Vòng lặp ngầm đang quét mục tiêu: {result.get('target').upper()}")
-    time.sleep(5)
-    st.rerun()
+gemini_api_key = st.sidebar.text_input("🔑 Nhập
