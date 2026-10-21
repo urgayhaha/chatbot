@@ -219,4 +219,111 @@ class AdvancedCuriosityEngine:
 
 # ==================== 5. KHỞI TẠO TRẠNG THÁI ====================
 if "agi_memory" not in st.session_state:
-    st.session_state.agi_memory = A
+    st.session_state.agi_memory = AGIKnowledgeMemory()
+if "background_running" not in st.session_state:
+    st.session_state.background_running = False
+
+if "world_model_ai_v9" not in st.session_state:
+    st.session_state.world_model_ai_v9 = AGIWorldModel(st.session_state.agi_memory)
+
+if "curiosity_engine_ai_v9" not in st.session_state:
+    st.session_state.curiosity_engine_ai_v9 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v9)
+
+if "explore_log" not in st.session_state:
+    st.session_state.explore_log = []
+
+memory = st.session_state.agi_memory
+extractor = AGIKnowledgeExtractor(memory)
+world_model = st.session_state.world_model_ai_v9
+curiosity = st.session_state.curiosity_engine_ai_v9
+
+# ==================== 6. GIAO DIỆN DASHBOARD ====================
+st.title("🧠 AGI Cognitive Core Dashboard")
+st.caption("Kien truc dinh cao: Dong luc noi tai + World Model + Co che Tu dong Phan ung & Can thiep")
+
+st.sidebar.header("Cau hinh AI & He thong")
+gemini_api_key = st.sidebar.text_input("Nhap Gemini API Key:", type="password")
+
+if st.sidebar.button("Dung chay ngầm" if st.session_state.background_running else "Bat chay ngầm", use_container_width=True):
+    st.session_state.background_running = not st.session_state.background_running
+    st.rerun()
+
+tab1, tab2, tab3, tab4 = st.tabs(["Nhap lieu & File", "Do thi Tri thuc", "AI World Model & Phan ung", "Tro ly LLM"])
+
+with tab1:
+    st.subheader("Nap van ban hoac Tep tin Local")
+    raw = st.text_area("Nhap su viec/thuc the can phan tich:", "Con meo dang bang qua đường nhưng nhieu xe co đang di chuyen rat nhanh.", height=100)
+    if st.button("Trich xuat vao Do thi", use_container_width=True):
+        n = extractor.extract_and_ingest(raw)
+        st.success(f"Da nap {n} thuc the vao bo nho tri thuc!")
+        st.rerun()
+
+with tab2:
+    st.subheader("Bang Do thi Tri thuc")
+    c1, c2 = st.columns(2)
+    c1.metric("Tong Thuc the (Nodes)", len(memory.nodes))
+    c2.metric("Tong Moi quan he (Edges)", len(memory.edges))
+    
+    ranked_nodes = curiosity.scan_and_rank(top_k=50)
+    if ranked_nodes:
+        df_nodes = pd.DataFrame([{
+            "Thuc the": item["entity"].upper(),
+            "Phan loai": item["type"],
+        } for item in ranked_nodes])
+        st.dataframe(df_nodes, use_container_width=True, hide_index=True)
+
+with tab3:
+    st.subheader("AI World Model: Mo phong & Phan ung Tu dong")
+    st.info("He thong phan tich rui ro vat ly va tu dong dua ra chinh sach can thiep thoi gian thuc.")
+    
+    node_keys = list(memory.nodes.keys())
+    if node_keys:
+        selected_node = st.selectbox("Chon thuc the để mo phong & phan ung:", node_keys)
+        
+        if st.button("Chay Mo Phong & Kich Hoat Phan Ung AGI", use_container_width=True):
+            if not gemini_api_key:
+                st.error("Vui long nhap Gemini API Key o thanh sidebar ben trai!")
+            else:
+                with st.spinner("Gemini AI đang mo phong the gioi va tinh toan phan ung khan cap..."):
+                    pred = world_model.simulate_with_ai(selected_node, gemini_api_key)
+                
+                st.markdown("### Ket qua Phan tich & Phan ung Tu dong tu AGI:")
+                st.markdown(f"- **Thuc the phan tich:** `{pred.get('target', '').upper()}`")
+                st.markdown(f"- **Linh vực nhận diện:** `{pred.get('domain')}`")
+                st.markdown(f"- **Hanh dong cot loi:** `{pred.get('detected_action')}` *({pred.get('action_description')})*")
+                st.markdown(f"- **He qua du kien & Quy dao:** **{pred.get('predicted_outcome')}**")
+                st.markdown(f"- **Chi so rui ro uoc tinh:** `{pred.get('estimated_risk')}`")
+                
+                reaction = pred.get('reaction', {})
+                level = reaction.get('level', 'UNKNOWN')
+                policy = reaction.get('policy', '')
+                action = reaction.get('action', '')
+                
+                if reaction.get('color') == 'red':
+                    st.error(f"PHAN UNG KHAN CAP [{level}]: Lệnh hành động `{action}` — {policy}")
+                elif reaction.get('color') == 'orange':
+                    st.warning(f"CANH BAO GIAM SAT [{level}]: Lệnh hành động `{action}` — {policy}")
+                else:
+                    st.success(f"VAN HANH AN TOAN [{level}]: Lệnh hành động `{action}` — {policy}")
+    else:
+        st.warning("Chua co thuc the trong bo nho. Hay sang tab 'Nhap lieu' để them su việc.")
+
+with tab4:
+    st.subheader("Tro ly LLM / Hoi đáp tri thuc AGI")
+    user_query = st.text_input("Dat cau hoi cho AGI:")
+    if user_query:
+        query_lower = user_query.lower()
+        matched_nodes = [n for n in memory.nodes if query_lower in n]
+        if matched_nodes:
+            for node in matched_nodes:
+                st.markdown(f"- Phát hiện thực thể: `{node.upper()}` trong bộ nhớ.")
+        else:
+            st.warning("Khong tim thay trong bo nho dai han.")
+
+# ==================== 7. VÒNG LẶP NGẦM ====================
+if st.session_state.background_running:
+    result = curiosity.auto_explore_once()
+    if result.get("success"):
+        st.toast(f"Vòng lặp ngầm đang quét mục tiêu: {result.get('target').upper()}")
+    time.sleep(5)
+    st.rerun()
