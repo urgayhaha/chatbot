@@ -146,7 +146,7 @@ class AGIWorldModel:
         try:
             client = genai.Client(api_key=api_key)
             prompt = f"""
-            Ban la World Model (Mohinh the gioi vat ly va nhan thức) cua he thong AGI.
+            Ban la World Model (Mo hinh the gioi vat ly va nhan thuc) cua he thong AGI.
             Hay phan tich tinh huong sau: "{node_id}"
             
             Tra ve ket qua phan tich dung cau truc JSON gom cac truong sau (khong kem markdown thua):
@@ -219,49 +219,4 @@ class AdvancedCuriosityEngine:
 
 # ==================== 5. KHỞI TẠO TRẠNG THÁI ====================
 if "agi_memory" not in st.session_state:
-    st.session_state.agi_memory = AGIKnowledgeMemory()
-if "background_running" not in st.session_state:
-    st.session_state.background_running = False
-
-if "world_model_ai_v6" not in st.session_state:
-    st.session_state.world_model_ai_v6 = AGIWorldModel(st.session_state.agi_memory)
-
-if "curiosity_engine_ai_v6" not in st.session_state:
-    st.session_state.curiosity_engine_ai_v6 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v6)
-
-if "explore_log" not in st.session_state:
-    st.session_state.explore_log = []
-
-memory = st.session_state.agi_memory
-extractor = AGIKnowledgeExtractor(memory)
-world_model = st.session_state.world_model_ai_v6
-curiosity = st.session_state.curiosity_engine_ai_v6
-
-# ==================== 6. GIAO DIỆN DASHBOARD ====================
-st.title("🧠 AGI Cognitive Core Dashboard")
-st.caption("Kien truc dinh cao: Dong luc noi tai + World Model + Co che Tu dong Phan ung & Can thiep")
-
-st.sidebar.header("Cau hinh AI & He thong")
-gemini_api_key = st.sidebar.text_input("Nhap Gemini API Key:", type="password")
-
-if st.sidebar.button("Dung chay ngầm" if st.session_state.background_running else "Bat chay ngầm", use_container_width=True):
-    st.session_state.background_running = not st.session_state.background_running
-    st.rerun()
-
-tab1, tab2, tab3, tab4 = st.tabs(["Nhap lieu & File", "Do thi Tri thuc", "AI World Model & Phan ung", "Tro ly LLM"])
-
-with tab1:
-    st.subheader("Nap van ban hoac Tep tin Local")
-    raw = st.text_area("Nhap su viec/thuc the can phan tich:", "Con meo dang bang qua đường nhưng nhieu xe co đang di chuyen rat nhanh.", height=100)
-    if st.button("Trich xuat vao Do thi", use_container_width=True):
-        n = extractor.extract_and_ingest(raw)
-        st.success(f"Da nap {n} thuc the vao bo nho tri thuc!")
-        st.rerun()
-
-with tab2:
-    st.subheader("Bang Do thi Tri thuc")
-    c1, c2 = st.columns(2)
-    c1.metric("Tong Thuc the (Nodes)", len(memory.nodes))
-    c2.metric("Tong Moi quan he (Edges)", len(memory.edges))
-    
-    ranked_nodes = curiosity.scan_and_rank(top
+    st.session_state.agi_memory = A
