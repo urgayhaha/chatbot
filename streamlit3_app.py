@@ -114,7 +114,8 @@ class AGIWorldModel:
                 "detected_action": "manual_input_required",
                 "action_description": "Chưa nhập Gemini API Key",
                 "predicted_outcome": "Vui lòng nhập API Key ở sidebar để AI phân tích thực tế.",
-                "estimated_risk": 0.0
+                "estimated_risk": 0.0,
+                "simulated_success": False
             }
         
         try:
@@ -133,12 +134,12 @@ class AGIWorldModel:
             }}
             """
             
+            # Sử dụng model gemini-2.5-flash chuẩn hiện tại
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt,
             )
             
-            # Làm sạch dữ liệu JSON trả về từ LLM
             clean_text = response.text.strip()
             clean_text = re.sub(r"^```json\s*", "", clean_text)
             clean_text = re.sub(r"\s*```$", "", clean_text)
@@ -164,17 +165,7 @@ class AdvancedCuriosityEngine:
     def __init__(self, memory_system, world_model: AGIWorldModel):
         self.memory = memory_system
         self.world_model = world_model
-        self.exploration_history = []
-        self.node_visit_count = {}
-        self.last_exploration_time = {}
         self.active_goals = []
-
-    def compute_curiosity_score(self, node_id: str) -> dict:
-        if node_id not in self.memory.nodes:
-            return {"total": 0.0}
-        node = self.memory.nodes[node_id]
-        scores = {"isolation": 2.0, "novelty": 2.0, "total": 5.0}
-        return scores
 
     def scan_and_rank(self, top_k=50):
         results = []
@@ -203,19 +194,19 @@ if "agi_memory" not in st.session_state:
 if "background_running" not in st.session_state:
     st.session_state.background_running = False
 
-if "world_model_ai" not in st.session_state:
-    st.session_state.world_model_ai = AGIWorldModel(st.session_state.agi_memory)
+if "world_model_ai_v2" not in st.session_state:
+    st.session_state.world_model_ai_v2 = AGIWorldModel(st.session_state.agi_memory)
 
-if "curiosity_engine_ai" not in st.session_state:
-    st.session_state.curiosity_engine_ai = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai)
+if "curiosity_engine_ai_v2" not in st.session_state:
+    st.session_state.curiosity_engine_ai_v2 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v2)
 
 if "explore_log" not in st.session_state:
     st.session_state.explore_log = []
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
-world_model = st.session_state.world_model_ai
-curiosity = st.session_state.curiosity_engine_ai
+world_model = st.session_state.world_model_ai_v2
+curiosity = st.session_state.curiosity_engine_ai_v2
 
 # ==================== 6. GIAO DIỆN DASHBOARD ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
@@ -277,7 +268,7 @@ with tab3:
                 if pred.get('simulated_success'):
                     st.success("✅ **AI mô phỏng thành công:** Hệ thống đã hiểu rõ quy luật nhân quả của sự việc!")
                 else:
-                    st.error("❌ **Phân tích gặp sự cố:** Kiểm tra lại khóa API.")
+                    st.error(f"❌ **Phân tích gặp sự cố:** {pred.get('predicted_outcome')}")
     else:
         st.warning("Chưa có thực thể trong bộ nhớ. Hãy sang tab 'Nhập liệu' để thêm sự việc (VD: con mèo đang băng qua đường...).")
 
