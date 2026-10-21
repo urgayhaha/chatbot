@@ -10,8 +10,13 @@ from datetime import datetime
 
 st.set_page_config(page_title="AGI Cognitive Dashboard", page_icon="🧠", layout="wide")
 
-# ==================== API KEY ====================
+# ==================== CẤU HÌNH API ====================
 GEMINI_API_KEY = "AQ.Ab8RN6I52wKSVq78IGjJl_zbSKfCVEgLDIEzhC_yES-ouv99KA"
+GOOGLE_API_KEY = ""      # Điền Google Custom Search API Key
+GOOGLE_CX = ""           # Điền Search Engine ID (cx)
+
+KNOWLEDGE_FOLDER = "knowledge_files"
+os.makedirs(KNOWLEDGE_FOLDER, exist_ok=True)
 
 # ==================== 1. BỘ NHỚ ====================
 class AGIKnowledgeMemory:
@@ -100,24 +105,34 @@ class AGIKnowledgeExtractor:
         return count
 
 # ==================== 3. CÔNG CỤ BÊN NGOÀI ====================
-def search_wikipedia(query: str) -> str:
+def search_wikipedia(query: str) -> dict:
     headers = {"User-Agent": "AGI-Dashboard/1.0"}
+    for lang, base in [("vi", "https://vi.wikipedia.org"), ("en", "https://en.wikipedia.org")]:
+        try:
+            url = f"{base}/api/rest_v1/page/summary/{requests.utils.quote(query.replace(' ', '_'))}"
+            r = requests.get(url, timeout=7, headers=headers)
+            if r.status_code == 200:
+                data = r.json()
+                extract = data.get("extract", "")
+                if extract and len(extract) > 40:
+                    return {"lang": lang, "title": data.get("title", query), "extract": extract[:500]}
+        except:
+            continue
+    return {}
+
+def search_google(query: str, api_key: str, cx: str, num: int = 2) -> list:
+    if not api_key or not cx:
+        return []
     try:
-        url_vi = f"https://vi.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(query.replace(' ', '_'))}"
-        r = requests.get(url_vi, timeout=8, headers=headers)
+        url = "https://www.googleapis.com/customsearch/v1"
+        params = {"key": api_key, "cx": cx, "q": query, "num": num}
+        r = requests.get(url, params=params, timeout=8)
         if r.status_code == 200:
-            extract = r.json().get("extract", "")
-            if extract:
-                return extract[:500]
-        url_en = f"https://en.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(query.replace(' ', '_'))}"
-        r2 = requests.get(url_en, timeout=8, headers=headers)
-        if r2.status_code == 200:
-            extract = r2.json().get("extract", "")
-            if extract:
-                return extract[:500]
-        return ""
+            return [{"title": it.get("title",""), "snippet": it.get("snippet",""), "link": it.get("link","")}
+                    for it in r.json().get("items", [])]
     except:
-        return ""
+        pass
+    return []
 
 def call_gemini(prompt: str, api_key: str) -> str:
     if not api_key:
@@ -125,39 +140,36 @@ def call_gemini(prompt: str, api_key: str) -> str:
     try:
         from google import genai
         client = genai.Client(api_key=api_key)
-        for model_name in ["gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash"]:
+        for model in ["gemini-2.5-flash", "gemini-2.0-flash-exp", "gemini-1.5-flash"]:
             try:
-                response = client.models.generate_content(model=model_name, contents=prompt)
-                text = response.text.strip()
+                resp = client.models.generate_content(model=model, contents=prompt)
+                text = resp.text.strip()
                 if text and len(text) > 15:
                     return text[:600]
             except:
                 continue
-        return ""
     except:
-        return ""
+        pass
+    return ""
 
-def read_local_files(folder="knowledge_files", max_files=5) -> list:
+def read_local_files(folder=KNOWLEDGE_FOLDER) -> list:
     results = []
     if not os.path.exists(folder):
-        os.makedirs(folder)
         return results
-    for fname in os.listdir(folder)[:max_files]:
+    for fname in os.listdir(folder):
         if fname.endswith(".txt"):
             try:
                 with open(os.path.join(folder, fname), "r", encoding="utf-8") as f:
-                    content = f.read()[:800]
-                    results.append({"file": fname, "content": content})
+                    results.append({"file": fname, "content": f.read()[:800]})
             except:
                 pass
     return results
 
-# ==================== 4. CURIOSITY ENGINE NÂNG CẤP ====================
+# ==================== 4. CURIOSITY ENGINE ====================
 class UpgradedCuriosityEngine:
     def __init__(self, memory_system):
         self.memory = memory_system
         self.last_action_time = 0
-        self.action_history = []
 
     def get_candidates(self):
         skip = ["Thông tin bên ngoài", "Phân tích AI", "Nội dung file"]
@@ -166,167 +178,182 @@ class UpgradedCuriosityEngine:
     def should_act(self) -> bool:
         return time.time() - self.last_action_time >= 12 and len(self.get_candidates()) > 0
 
-    def evaluate_result(self, content: str) -> float:
-        if not content or len(content) < 30:
+    def evaluate(self, text: str) -> float:
+        if not text or len(text) < 30:
             return 0.2
-        score = 0.5
-        if len(content) > 120:
-            score += 0.25
-        if any(kw in content.lower() for kw in ["là", "được", "có", "sử dụng", "bao gồm", "là một"]):
-            score += 0.2
-        return min(1.0, score)
+        s = 0.5
+        if len(text) > 100: s += 0.2
+        if any(k in text.lower() for k in ["là", "được", "có", "sử dụng"]): s += 0.2
+        return min(1.0, s)
 
-    def explore_with_strategy(self, entity_id: str, api_key: str = "") -> dict:
+    def explore(self, entity_id: str) -> dict:
         self.last_action_time = time.time()
         results = []
 
         # Wikipedia
         wiki = search_wikipedia(entity_id)
-        wiki_score = self.evaluate_result(wiki)
-        if wiki_score > 0.35:
-            node = f"wiki_{int(time.time()) % 100000}"
+        if wiki:
+            sc = self.evaluate(wiki["extract"])
+            node = f"wiki_{int(time.time())%100000}"
             self.memory.add_entity(node, "Thông tin bên ngoài", {
-                "source": "wikipedia", "content": wiki, "about": entity_id, "usefulness": round(wiki_score, 2)
+                "source": f"wiki-{wiki['lang']}", "content": wiki["extract"],
+                "about": entity_id, "usefulness": round(sc,2)
             })
-            self.memory.add_relation(entity_id, node, "có thông tin từ wikipedia", weight=round(2.0 + wiki_score, 1))
-            results.append({"source": "wikipedia", "score": wiki_score, "preview": wiki[:100]})
+            self.memory.add_relation(entity_id, node, "từ wikipedia", weight=round(2+sc,1))
+            results.append({"source": f"Wiki-{wiki['lang']}", "score": sc, "preview": wiki["extract"][:90]})
 
-        # Gemini nếu Wikipedia chưa đủ tốt
-        if api_key and wiki_score < 0.75:
-            prompt = f"Giải thích ngắn gọn, chính xác bằng tiếng Việt về: '{entity_id}'. Tập trung vào định nghĩa và đặc điểm chính. Chỉ trả lời nội dung."
-            ai = call_gemini(prompt, api_key)
-            ai_score = self.evaluate_result(ai)
-            if ai_score > 0.35:
-                node = f"ai_{int(time.time()) % 100000}"
+        # Google
+        if GOOGLE_API_KEY and GOOGLE_CX:
+            for i, g in enumerate(search_google(entity_id, GOOGLE_API_KEY, GOOGLE_CX)):
+                snip = g.get("snippet","")
+                if len(snip) > 25:
+                    sc = self.evaluate(snip)
+                    node = f"gg_{int(time.time())%100000}_{i}"
+                    self.memory.add_entity(node, "Thông tin bên ngoài", {
+                        "source": "google", "content": f"{g.get('title','')}: {snip}",
+                        "about": entity_id, "url": g.get("link",""), "usefulness": round(sc,2)
+                    })
+                    self.memory.add_relation(entity_id, node, "từ google", weight=round(1.8+sc,1))
+                    results.append({"source": "Google", "score": sc, "preview": snip[:80]})
+
+        # Gemini
+        best = max([r["score"] for r in results], default=0)
+        if GEMINI_API_KEY and best < 0.7:
+            ai = call_gemini(f"Giải thích ngắn gọn bằng tiếng Việt về '{entity_id}'.", GEMINI_API_KEY)
+            if ai:
+                sc = self.evaluate(ai)
+                node = f"ai_{int(time.time())%100000}"
                 self.memory.add_entity(node, "Phân tích AI", {
-                    "source": "gemini", "content": ai, "about": entity_id, "usefulness": round(ai_score, 2)
+                    "source": "gemini", "content": ai, "about": entity_id, "usefulness": round(sc,2)
                 })
-                self.memory.add_relation(entity_id, node, "được phân tích bởi AI", weight=round(2.0 + ai_score, 1))
-                results.append({"source": "gemini", "score": ai_score, "preview": ai[:100]})
+                self.memory.add_relation(entity_id, node, "phân tích AI", weight=round(2+sc,1))
+                results.append({"source": "Gemini", "score": sc, "preview": ai[:90]})
 
         # File local
         for lf in read_local_files():
-            if entity_id.lower() in lf["content"].lower() or entity_id.lower() in lf["file"].lower():
-                node = f"file_{int(time.time()) % 100000}"
+            if entity_id.lower() in lf["content"].lower():
+                node = f"file_{int(time.time())%100000}"
                 self.memory.add_entity(node, "Nội dung file", {
-                    "source": lf["file"], "content": lf["content"][:500], "about": entity_id
+                    "source": lf["file"], "content": lf["content"][:400], "about": entity_id
                 })
-                self.memory.add_relation(entity_id, node, "được đề cập trong file", weight=2.2)
-                results.append({"source": f"file:{lf['file']}", "score": 0.65, "preview": lf["content"][:80]})
+                self.memory.add_relation(entity_id, node, "trong file", weight=2.1)
+                results.append({"source": f"File:{lf['file']}", "score": 0.6, "preview": lf["content"][:70]})
                 break
 
         self.memory.save_to_file()
-
         if results:
             best = max(results, key=lambda x: x["score"])
-            self.action_history.append({
-                "target": entity_id,
-                "sources": [r["source"] for r in results],
-                "best": best["source"],
-                "time": time.time()
-            })
-            return {
-                "success": True,
-                "target": entity_id,
-                "action": "multi",
-                "detail": f"{len(results)} nguồn | Tốt nhất: {best['source']} ({best['score']:.2f})",
-                "results": results
-            }
-        return {"success": False, "detail": "Không thu thập được thông tin hữu ích"}
+            return {"success": True, "target": entity_id,
+                    "detail": f"{len(results)} nguồn | Tốt nhất: {best['source']} ({best['score']:.2f})",
+                    "results": results}
+        return {"success": False, "detail": "Không thu thập được"}
 
-    def auto_explore_once(self, api_key: str = "") -> dict:
+    def auto_once(self) -> dict:
         if not self.should_act():
             return {"success": False}
-        candidates = self.get_candidates()
-        if not candidates:
+        cands = self.get_candidates()
+        if not cands:
             return {"success": False}
-        target = random.choice(candidates)
-        return self.explore_with_strategy(target, api_key)
+        return self.explore(random.choice(cands))
 
 # ==================== 5. KHỞI TẠO ====================
-if "agi_memory" not in st.session_state:
-    st.session_state.agi_memory = AGIKnowledgeMemory()
-if "background_running" not in st.session_state:
-    st.session_state.background_running = False
+if "memory" not in st.session_state:
+    st.session_state.memory = AGIKnowledgeMemory()
+if "running" not in st.session_state:
+    st.session_state.running = False
 if "curiosity" not in st.session_state:
-    st.session_state.curiosity = UpgradedCuriosityEngine(st.session_state.agi_memory)
-if "explore_log" not in st.session_state:
-    st.session_state.explore_log = []
+    st.session_state.curiosity = UpgradedCuriosityEngine(st.session_state.memory)
+if "log" not in st.session_state:
+    st.session_state.log = []
 
-memory = st.session_state.agi_memory
+memory = st.session_state.memory
 extractor = AGIKnowledgeExtractor(memory)
 curiosity = st.session_state.curiosity
 
 # ==================== 6. GIAO DIỆN ====================
 st.title("🧠 AGI Cognitive Dashboard")
-st.caption("Khám phá đa nguồn: Wikipedia + Gemini + File local")
+st.caption("Wikipedia + Google + Gemini + Upload file")
 
-st.sidebar.header("⚙️ Điều khiển")
-btn = "🛑 Dừng" if st.session_state.background_running else "🟢 Bật chạy ngầm"
-if st.sidebar.button(btn, use_container_width=True):
-    st.session_state.background_running = not st.session_state.background_running
+st.sidebar.header("Điều khiển")
+if st.sidebar.button("🛑 Dừng" if st.session_state.running else "🟢 Bật chạy ngầm", use_container_width=True):
+    st.session_state.running = not st.session_state.running
     st.rerun()
 
-if st.session_state.explore_log:
+if st.session_state.log:
     st.sidebar.divider()
-    st.sidebar.markdown("### Nhật ký")
-    for log in reversed(st.session_state.explore_log[-6:]):
-        st.sidebar.caption(f"• {log}")
+    st.sidebar.markdown("**Nhật ký**")
+    for l in reversed(st.session_state.log[-5:]):
+        st.sidebar.caption(f"• {l}")
 
-tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu", "📊 Thông tin đã thu", "🌐 Khám phá"])
+tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu & Upload", "📊 Thông tin", "🌐 Khám phá"])
 
 with tab1:
-    raw = st.text_area("Văn bản:", "Mèo là động vật nuôi.\nAGI là trí tuệ nhân tạo tổng quát.", height=90)
-    if st.button("🚀 Trích xuất", use_container_width=True):
+    st.subheader("Nạp văn bản")
+    raw = st.text_area("Văn bản:", "Mèo là động vật nuôi.\nAGI là trí tuệ nhân tạo.", height=80)
+    if st.button("Trích xuất văn bản", use_container_width=True):
         n = extractor.extract_and_ingest(raw)
-        st.success(f"Đã nạp {n} thực thể")
+        st.success(f"Đã nạp {n}")
         st.rerun()
-    st.caption("Tip: Tạo thư mục `knowledge_files` và bỏ file .txt vào để hệ thống đọc.")
+
+    st.divider()
+    st.subheader("Upload file .txt")
+    uploaded = st.file_uploader("Chọn file kiến thức (.txt)", type=["txt"], accept_multiple_files=True)
+    if uploaded:
+        for f in uploaded:
+            path = os.path.join(KNOWLEDGE_FOLDER, f.name)
+            with open(path, "wb") as out:
+                out.write(f.getbuffer())
+            st.success(f"Đã lưu: {f.name}")
+        st.rerun()
+
+    # Liệt kê file đã có
+    files = [f for f in os.listdir(KNOWLEDGE_FOLDER) if f.endswith(".txt")]
+    if files:
+        st.caption(f"File trong thư mục: {', '.join(files)}")
 
 with tab2:
     c1, c2 = st.columns(2)
     c1.metric("Nodes", len(memory.nodes))
     c2.metric("Edges", len(memory.edges))
-    info_nodes = [(nid, info) for nid, info in memory.nodes.items()
-                  if info.get("type") in ["Thông tin bên ngoài", "Phân tích AI", "Nội dung file"]]
-    if info_nodes:
+    infos = [(n, i) for n, i in memory.nodes.items()
+             if i.get("type") in ["Thông tin bên ngoài", "Phân tích AI", "Nội dung file"]]
+    if infos:
         st.subheader("Thông tin đã thu thập")
-        for nid, info in reversed(info_nodes[-10:]):
-            props = info.get("properties", {})
-            about = props.get("about", "?")
-            content = props.get("content", "")
-            source = props.get("source", info.get("type", ""))
-            score = props.get("usefulness", "")
-            label = f"[{source}] {about}" + (f" ({score})" if score else "")
+        for nid, info in reversed(infos[-12:]):
+            p = info.get("properties", {})
+            label = f"[{p.get('source','')}] {p.get('about','?')}"
+            if p.get("usefulness"):
+                label += f" ({p['usefulness']})"
             with st.expander(label):
-                st.write(content)
+                st.write(p.get("content", ""))
+                if p.get("url"):
+                    st.caption(p["url"])
     else:
         st.info("Chưa có thông tin bên ngoài.")
 
 with tab3:
-    candidates = curiosity.get_candidates()
-    if candidates:
-        selected = st.selectbox("Chọn thực thể:", candidates)
+    cands = curiosity.get_candidates()
+    if cands:
+        sel = st.selectbox("Chọn thực thể:", cands)
         if st.button("🔍 Khám phá đa nguồn", use_container_width=True):
-            with st.spinner("Đang thu thập từ Wikipedia, Gemini, file..."):
-                res = curiosity.explore_with_strategy(selected, GEMINI_API_KEY)
+            with st.spinner("Đang tìm Wikipedia, Google, Gemini, file..."):
+                res = curiosity.explore(sel)
             if res.get("success"):
                 st.success(res["detail"])
                 for r in res.get("results", []):
-                    st.caption(f"• {r['source']}: {r['preview']}")
-                st.session_state.explore_log.append(f"{selected} → {res['detail']}")
+                    st.caption(f"• **{r['source']}** ({r['score']:.2f}): {r['preview']}")
+                st.session_state.log.append(f"{sel} → {res['detail']}")
                 st.rerun()
             else:
-                st.warning(res.get("detail", "Thất bại"))
+                st.warning(res.get("detail"))
     else:
-        st.info("Hãy nạp văn bản trước.")
+        st.info("Hãy nạp văn bản hoặc upload file trước.")
 
 # ==================== 7. BACKGROUND ====================
-if st.session_state.background_running:
-    result = curiosity.auto_explore_once(GEMINI_API_KEY)
-    if result.get("success"):
-        msg = f"{result['target']} → {result['detail']}"
-        st.toast(f"🌐 {msg}")
-        st.session_state.explore_log.append(msg)
+if st.session_state.running:
+    res = curiosity.auto_once()
+    if res.get("success"):
+        st.toast(f"🌐 {res['target']} → {res['detail']}")
+        st.session_state.log.append(f"{res['target']} → {res['detail']}")
     time.sleep(12)
     st.rerun()
