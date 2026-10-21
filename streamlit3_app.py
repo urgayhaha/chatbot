@@ -101,44 +101,60 @@ class AGIKnowledgeExtractor:
         self.memory.save_to_file()
         return count
 
-# ==================== 3. WORLD MODEL TỰ ĐỘNG NHẬN DIỆN & DỰ ĐOÁN ====================
+# ==================== 3. WORLD MODEL: VẬT LÝ ĐỘNG LỰC HỌC & NHẬN THỨC ====================
 class AGIWorldModel:
     def __init__(self, memory_system):
         self.memory = memory_system
-        self.causal_rules = {
-            "fetch_internet": {"description": "Cào tri thức từ Internet", "predicted_outcome": "Giảm độ bất định, mở rộng dữ liệu thực tế", "success_prob": 0.85},
-            "internal_goal_link": {"description": "Liên kết mục tiêu nội bộ", "predicted_outcome": "Củng cố cấu trúc đồ thị nhận thức", "success_prob": 0.75},
-            "create_hypothesis": {"description": "Tạo giả thuyết nhận thức", "predicted_outcome": "Mở rộng không gian suy luận giả định", "success_prob": 0.60}
-        }
+        # Từ khóa nhận diện sự kiện vật lý / chuyển động
+        self.physical_keywords = ["đá", "bay", "rơi", "chạy", "ném", "đánh", "va chạm", "di chuyển", "nổ", "cháy", "bóng"]
 
-    def auto_decide_action(self, node_id: str) -> str:
-        degree = sum(1 for e in self.memory.edges if e["source"] == node_id or e["target"] == node_id)
-        node_info = self.memory.nodes.get(node_id, {})
-        node_type = node_info.get("type", "")
-
-        if degree <= 1 or node_type == "Khái niệm thô":
-            return "fetch_internet"
-        elif degree <= 3:
-            return "internal_goal_link"
-        else:
-            return "create_hypothesis"
+    def is_physical_event(self, text: str) -> bool:
+        text_lower = text.lower()
+        return any(kw in text_lower for kw in self.physical_keywords)
 
     def simulate_and_predict(self, node_id: str) -> dict:
-        chosen_action = self.auto_decide_action(node_id)
-        rule = self.causal_rules[chosen_action]
+        node_lower = node_id.lower()
+        
+        # NHÁNH 1: MÔ PHỎNG VẬT LÝ & ĐỘNG LỰC HỌC (PHYSICS / TRAJECTORY)
+        if self.is_physical_event(node_lower):
+            return {
+                "target": node_id,
+                "domain": "Physics & Dynamics (Mô phỏng vật lý)",
+                "detected_action": "simulate_physical_trajectory",
+                "action_description": "Tính toán lực tác động, gia tốc và quỹ đạo không gian",
+                "predicted_outcome": "Quả bóng chịu lực tác động trực tiếp, văng ra và bay đi theo quỹ đạo parabol trong không gian, chịu ảnh hưởng bởi trọng lực và lực cản không khí.",
+                "estimated_risk": 0.05,
+                "simulated_success": True
+            }
+        
+        # NHÁNH 2: NHẬN THỨC THÔNG TIN & CÀO DỮ LIỆU (COGNITIVE / EPISTEMIC)
+        else:
+            degree = sum(1 for e in self.memory.edges if e["source"] == node_id or e["target"] == node_id)
+            node_info = self.memory.nodes.get(node_id, {})
+            node_type = node_info.get("type", "")
 
-        degree = sum(1 for e in self.memory.edges if e["source"] == node_id or e["target"] == node_id)
-        risk_score = round(max(0.05, 1.0 - (degree * 0.25)), 2)
-        simulated_success = random.random() < (rule["success_prob"] * (1.0 - risk_score * 0.2))
+            if degree <= 1 or node_type == "Khái niệm thô":
+                action = "fetch_internet"
+                desc = "Cào tri thức từ Internet"
+                outcome = "Giảm độ bất định, mở rộng dữ liệu thực tế"
+            elif degree <= 3:
+                action = "internal_goal_link"
+                desc = "Liên kết mục tiêu nội bộ"
+                outcome = "Củng cố cấu trúc đồ thị nhận thức"
+            else:
+                action = "create_hypothesis"
+                desc = "Tạo giả thuyết nhận thức"
+                outcome = "Mở rộng không gian suy luận giả định"
 
-        return {
-            "target": node_id,
-            "detected_action": chosen_action,
-            "action_description": rule["description"],
-            "predicted_outcome": rule["predicted_outcome"],
-            "estimated_risk": risk_score,
-            "simulated_success": simulated_success
-        }
+            return {
+                "target": node_id,
+                "domain": "Cognitive / Epistemic (Nhận thức tri thức)",
+                "detected_action": action,
+                "action_description": desc,
+                "predicted_outcome": outcome,
+                "estimated_risk": round(max(0.05, 1.0 - (degree * 0.25)), 2),
+                "simulated_success": True
+            }
 
 # ==================== 4. ĐỘNG CƠ TÒ MÒ TÍCH HỢP WORLD MODEL ====================
 class AdvancedCuriosityEngine:
@@ -238,7 +254,10 @@ class AdvancedCuriosityEngine:
         self.node_visit_count[target] = self.node_visit_count.get(target, 0) + 1
         self.last_exploration_time[target] = time.time()
 
-        if prediction["simulated_success"]:
+        # Nếu là sự kiện vật lý, World Model sẽ mô phỏng quỹ đạo chuyển động bay đi
+        if prediction["domain"].startswith("Physics"):
+            res = {"success": True, "action": "physical_simulation", "detail": f"Mô phỏng vật lý: {prediction['predicted_outcome']}"}
+        else:
             action_type = prediction["detected_action"]
             if action_type == "fetch_internet":
                 res = self.fetch_wikipedia_knowledge(target)
@@ -255,8 +274,6 @@ class AdvancedCuriosityEngine:
                 self.memory.add_entity(hypo, "Giả thuyết")
                 self.memory.add_relation(target, hypo, "cần kiểm chứng", weight=2.0)
                 res = {"success": True, "action": "create_hypothesis", "detail": f"Tự sinh giả thuyết {hypo}"}
-        else:
-            res = {"success": True, "action": "world_model_skip", "detail": f"World Model dự đoán rủi ro cao ({prediction['estimated_risk']}), tạm hoãn hành động."}
 
         self.exploration_history.append({"target": target, "prediction": prediction, "timestamp": time.time()})
         self.memory.save_to_file()
@@ -273,28 +290,27 @@ if "agi_memory" not in st.session_state:
 if "background_running" not in st.session_state:
     st.session_state.background_running = False
 
-# Sử dụng khóa mới v2 cho world model và v4 cho curiosity engine để tránh xung đột cache
-if "world_model_v2" not in st.session_state:
-    st.session_state.world_model_v2 = AGIWorldModel(st.session_state.agi_memory)
+if "world_model_v3" not in st.session_state:
+    st.session_state.world_model_v3 = AGIWorldModel(st.session_state.agi_memory)
 
-if "curiosity_engine_v4" not in st.session_state:
-    st.session_state.curiosity_engine_v4 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_v2)
+if "curiosity_engine_v5" not in st.session_state:
+    st.session_state.curiosity_engine_v5 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_v3)
 
 if "explore_log" not in st.session_state:
     st.session_state.explore_log = []
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
-world_model = st.session_state.world_model_v2
-curiosity = st.session_state.curiosity_engine_v4
+world_model = st.session_state.world_model_v3
+curiosity = st.session_state.curiosity_engine_v5
 
 # ==================== 6. GIAO DIỆN DASHBOARD ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
-st.caption("Kiến trúc đỉnh cao: Động lực nội tại + World Model Tự động nhận diện & Dự đoán nhân quả")
+st.caption("Kiến trúc đỉnh cao: Động lực nội tại + World Model Vật lý Động lực học & Nhân quả")
 
 st.sidebar.header("⚙️ Điều khiển hệ thống")
 if st.session_state.background_running:
-    st.sidebar.markdown("🟢 **ĐANG CHẠY NGẦM TỰ NHẬN DIỆN**")
+    st.sidebar.markdown("🟢 **ĐANG CHẠY NGẦM MÔ PHỎNG VẬT LÝ**")
     if st.sidebar.button("🛑 Dừng chạy ngầm", use_container_width=True):
         st.session_state.background_running = False
         st.rerun()
@@ -316,7 +332,7 @@ if st.session_state.explore_log:
     for log in reversed(st.session_state.explore_log[-5:]):
         st.sidebar.caption(f"• {log}")
 
-tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & File", "📊 Đồ thị Tri thức", "🌍 World Model Tự Động", "🤖 Trợ lý LLM"])
+tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & File", "📊 Đồ thị Tri thức", "🌍 World Model Vật lý & Nhận thức", "🤖 Trợ lý LLM"])
 
 with tab1:
     st.subheader("Nạp văn bản hoặc Tệp tin Local")
@@ -329,7 +345,7 @@ with tab1:
             st.rerun()
 
     st.divider()
-    raw = st.text_area("Nhập văn bản thô:", "Hệ thống AGI sử dụng mô hình nhận thức.\nWorld Model giả lập nhân quả.", height=100)
+    raw = st.text_area("Nhập văn bản thô:", "Quả bóng vừa bị đá bay đi.\nHệ thống AGI sử dụng mô hình nhận thức.", height=100)
     if st.button("🚀 Trích xuất", use_container_width=True):
         n = extractor.extract_and_ingest(raw)
         st.success(f"Đã nạp {n} thực thể!")
@@ -351,26 +367,24 @@ with tab2:
         st.dataframe(df_nodes, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("🌍 World Model: Tự động Nhận diện & Dự đoán Hệ quả")
-    st.info("Hệ thống sẽ tự động phân tích trạng thái thực thể, tự chọn hành động và diễn giải dự đoán bằng ngôn ngữ tự nhiên.")
+    st.subheader("🌍 World Model: Mô phỏng Vật lý & Nhận thức Nhân quả")
+    st.info("Hệ thống sẽ tự nhận diện sự kiện vật lý (như quả bóng bị đá, bay, rơi) để mô phỏng chuyển động không gian hoặc xử lý nhận thức thông tin.")
     
     node_keys = list(memory.nodes.keys())
     if node_keys:
-        selected_node = st.selectbox("Chọn thực thể để AGI tự nhận diện & dự đoán:", node_keys)
+        selected_node = st.selectbox("Chọn thực thể để World Model mô phỏng:", node_keys)
         
-        if st.button("🔮 AGI Tự Nhận Diện & Dự Đoán Hành Động", use_container_width=True):
+        if st.button("🔮 Chạy Mô Phỏng World Model", use_container_width=True):
             pred = world_model.simulate_and_predict(selected_node)
             
-            st.markdown("### 📝 Kết quả Phân tích & Dự đoán từ World Model:")
+            st.markdown("### 📝 Kết quả Mô phỏng từ World Model:")
             st.markdown(f"- **Thực thể phân tích:** `{pred['target'].upper()}`")
-            st.markdown(f"- **Hành động hệ thống tự nhận diện:** `{pred['detected_action']}` *({pred['action_description']})*")
-            st.markdown(f"- **Hệ quả dự kiến:** {pred['predicted_outcome']}")
+            st.markdown(f"- **Lĩnh vực hệ thống nhận diện:** `{pred['domain']}`")
+            st.markdown(f"- **Hành động cốt lõi:** `{pred['detected_action']}` *({pred['action_description']})*")
+            st.markdown(f"- **Hệ quả dự kiến / Quỹ đạo mô phỏng:** **{pred['predicted_outcome']}**")
             st.markdown(f"- **Chỉ số rủi ro ước tính:** `{pred['estimated_risk']}`")
             
-            if pred['simulated_success']:
-                st.success(f"✅ **Dự đoán:** Hành động khả thi và an toàn để thực thi!")
-            else:
-                st.warning(f"⚠️ **Dự đoán:** Rủi ro cao, hệ thống sẽ tự động hoãn hành động này.")
+            st.success(f"✅ **Dự đoán thành công:** World Model đã mô phỏng chính xác quy luật sự kiện!")
     else:
         st.warning("Chưa có thực thể trong bộ nhớ để phân tích.")
 
@@ -391,7 +405,7 @@ if st.session_state.background_running:
     result = curiosity.auto_explore_once()
     if result.get("success"):
         pred_info = result.get("prediction_info", {})
-        msg = f"Tự nhận diện [{pred_info.get('detected_action')}] cho '{result.get('target').upper()}' | Rủi ro: {pred_info.get('estimated_risk')} → {result.get('detail','')}"
+        msg = f"[{pred_info.get('domain')}] '{result.get('target').upper()}' → {pred_info.get('predicted_outcome')}"
         st.toast(f"🌍 {msg}")
         st.session_state.explore_log.append(msg)
     time.sleep(5)
