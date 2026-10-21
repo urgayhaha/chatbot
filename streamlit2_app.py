@@ -405,7 +405,7 @@ with tab4:
             for node in matched_nodes:
                 st.markdown(f"- **Thực thể:** `{node}` (Loại: `{memory.nodes[node].get('type')}`)")
             for edge in matched_edges:
-                st.markdown(- `{edge['source']}` **{edge['relation']}** `{edge['target']}` *(Trọng số: {edge['weight']})*")
+                st.markdown(f"- `{edge['source']}` **{edge['relation']}** `{edge['target']}` *(Trọng số: {edge['weight']})*")
         else:
             st.warning("Tôi chưa có dữ liệu cụ thể về câu hỏi này trong trí nhớ. Bạn có thể dùng tính năng **'Cào tri thức Internet'** ở Tab Tò mò để tôi tìm kiếm bên ngoài!")
 
