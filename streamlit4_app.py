@@ -102,7 +102,7 @@ class AGIKnowledgeExtractor:
         self.memory.save_to_file()
         return count
 
-# ==================== 3. WORLD MODEL & BỘ ĐIỀU KHIỂN PHẢN ỨNG TỰ ĐỘNG ====================
+# ==================== 3. WORLD MODEL & PHẢN ỨNG TỰ ĐỘNG ====================
 class AGIReactionController:
     def evaluate_and_react(self, risk_score: float, domain: str) -> dict:
         if risk_score >= 0.75:
@@ -110,21 +110,21 @@ class AGIReactionController:
                 "level": "CRITICAL EMERGENCY",
                 "color": "red",
                 "action": "EMERGENCY_INTERVENTION",
-                "policy": "Kích hoạt phanh khẩn cấp, đảo hướng né tránh hoặc vô hiệu hóa tác nhân gây nguy hiểm ngay lập tức."
+                "policy": "Kich hoat phanh khan cap, dao huong ne tranh hoac vo hieu hoa tac nhan gay nguy hiem."
             }
         elif risk_score >= 0.40:
             return {
                 "level": "WARNING & CAUTION",
                 "color": "orange",
                 "action": "SLOW_DOWN_AND_MONITOR",
-                "policy": "Giảm tốc độ vận hành, tăng cường quan sát cảm biến và chuẩn bị phương án dự phòng."
+                "policy": "Giam toc do van hanh, tang cuong quan sat cam bien va chuan bi phuong an du phong."
             }
         else:
             return {
                 "level": "SAFE OPERATION",
                 "color": "green",
                 "action": "PROCEED_NORMALLY",
-                "policy": "Tiếp tục quy trình thực thi chuẩn, duy trì nhịp độ ổn định."
+                "policy": "Tiep tuc quy trinh thuc thi chuan, duy tri nhip do on dinh."
             }
 
 class AGIWorldModel:
@@ -137,8 +137,8 @@ class AGIWorldModel:
             return {
                 "domain": "Fallback Rule",
                 "detected_action": "manual_input_required",
-                "action_description": "Chưa nhập Gemini API Key",
-                "predicted_outcome": "Vui lòng nhập API Key ở sidebar để AI phân tích thực tế.",
+                "action_description": "Chua nhap Gemini API Key",
+                "predicted_outcome": "Vui long nhap API Key o sidebar de AI phan tich thuc te.",
                 "estimated_risk": 0.0,
                 "simulated_success": False
             }
@@ -146,20 +146,19 @@ class AGIWorldModel:
         try:
             client = genai.Client(api_key=api_key)
             prompt = f"""
-            Bạn là World Model (Mô hình thế giới vật lý và nhận thức) của hệ thống AGI.
-            Hãy phân tích tình huống/thực thể sau đây: "{node_id}"
+            Ban la World Model (Mohinh the gioi vat ly va nhan thức) cua he thong AGI.
+            Hay phan tich tinh huong sau: "{node_id}"
             
-            Trả về kết quả phân tích theo đúng cấu trúc JSON gồm các trường sau (không kèm markdown thừa):
+            Tra ve ket qua phan tich dung cau truc JSON gom cac truong sau (khong kem markdown thua):
             {{
-              "domain": "Physics & Dynamics hoặc Cognitive Science",
-              "detected_action": "tên hành động cốt lõi bằng tiếng Anh",
-              "action_description": "mô tả ngắn gọn hành động bằng tiếng Việt",
-              "predicted_outcome": "dự đoán chi tiết hệ quả vật lý, vận tốc, quỹ đạo hoặc quy luật nhân quả của tình huống trên bằng tiếng Việt",
-              "estimated_risk": số thực từ 0.0 đến 1.0 đánh giá mức độ nguy hiểm hoặc rủi ro
+              "domain": "Physics & Dynamics hoac Cognitive Science",
+              "detected_action": "ten hanh dong cot loi bang tieng Anh",
+              "action_description": "mo ta ngan gon hanh dong bang tieng Viet",
+              "predicted_outcome": "du doan chi tiet he qua vat ly, van toc, quy dao hoac nhan qua bang tieng Viet",
+              "estimated_risk": so thuc tu 0.0 den 1.0 danh gia muc do rui ro
             }}
             """
             
-            # Đã cập nhật sang model gemini-3.8-flash chuẩn
             response = client.models.generate_content(
                 model='gemini-3.8-flash',
                 contents=prompt,
@@ -183,11 +182,11 @@ class AGIWorldModel:
                 "target": node_id,
                 "domain": "AI Error",
                 "detected_action": "error",
-                "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
-                "predicted_outcome": f"Chi tiết lỗi: {str(e)}",
+                "action_description": "Loi ket noi hoac xu ly tu Gemini API",
+                "predicted_outcome": f"Chi tiet loi: {str(e)}",
                 "estimated_risk": 1.0,
                 "simulated_success": False,
-                "reaction": {"level": "SYSTEM ERROR", "color": "red", "action": "HALT", "policy": "Dừng khẩn cấp do lỗi hệ thống."}
+                "reaction": {"level": "SYSTEM ERROR", "color": "red", "action": "HALT", "policy": "Dung khan cap do loi he thong."}
             }
 
 # ==================== 4. ĐỘNG CƠ TÒ MÒ ====================
@@ -214,7 +213,7 @@ class AdvancedCuriosityEngine:
     def auto_explore_once(self) -> dict:
         self.update_long_term_goals()
         if not self.active_goals:
-            return {"success": False, "reason": "Không có mục tiêu"}
+            return {"success": False, "reason": "Khong co muc tieu"}
         target = self.active_goals[0]
         return {"success": True, "target": target, "action": "ai_world_model_active"}
 
@@ -224,23 +223,45 @@ if "agi_memory" not in st.session_state:
 if "background_running" not in st.session_state:
     st.session_state.background_running = False
 
-if "world_model_ai_v5" not in st.session_state:
-    st.session_state.world_model_ai_v5 = AGIWorldModel(st.session_state.agi_memory)
+if "world_model_ai_v6" not in st.session_state:
+    st.session_state.world_model_ai_v6 = AGIWorldModel(st.session_state.agi_memory)
 
-if "curiosity_engine_ai_v5" not in st.session_state:
-    st.session_state.curiosity_engine_ai_v5 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v5)
+if "curiosity_engine_ai_v6" not in st.session_state:
+    st.session_state.curiosity_engine_ai_v6 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v6)
 
 if "explore_log" not in st.session_state:
     st.session_state.explore_log = []
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
-world_model = st.session_state.world_model_ai_v5
-curiosity = st.session_state.curiosity_engine_ai_v5
+world_model = st.session_state.world_model_ai_v6
+curiosity = st.session_state.curiosity_engine_ai_v6
 
 # ==================== 6. GIAO DIỆN DASHBOARD ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
-st.caption("Kiến trúc đỉnh cao: Động lực nội tại + World Model + Cơ chế Tự động Phản ứng & Can thiệp")
+st.caption("Kien truc dinh cao: Dong luc noi tai + World Model + Co che Tu dong Phan ung & Can thiep")
 
-st.sidebar.header("⚙️ Cấu hình AI & Hệ thống")
-gemini_api_key = st.sidebar.text_input("🔑 Nhập
+st.sidebar.header("Cau hinh AI & He thong")
+gemini_api_key = st.sidebar.text_input("Nhap Gemini API Key:", type="password")
+
+if st.sidebar.button("Dung chay ngầm" if st.session_state.background_running else "Bat chay ngầm", use_container_width=True):
+    st.session_state.background_running = not st.session_state.background_running
+    st.rerun()
+
+tab1, tab2, tab3, tab4 = st.tabs(["Nhap lieu & File", "Do thi Tri thuc", "AI World Model & Phan ung", "Tro ly LLM"])
+
+with tab1:
+    st.subheader("Nap van ban hoac Tep tin Local")
+    raw = st.text_area("Nhap su viec/thuc the can phan tich:", "Con meo dang bang qua đường nhưng nhieu xe co đang di chuyen rat nhanh.", height=100)
+    if st.button("Trich xuat vao Do thi", use_container_width=True):
+        n = extractor.extract_and_ingest(raw)
+        st.success(f"Da nap {n} thuc the vao bo nho tri thuc!")
+        st.rerun()
+
+with tab2:
+    st.subheader("Bang Do thi Tri thuc")
+    c1, c2 = st.columns(2)
+    c1.metric("Tong Thuc the (Nodes)", len(memory.nodes))
+    c2.metric("Tong Moi quan he (Edges)", len(memory.edges))
+    
+    ranked_nodes = curiosity.scan_and_rank(top
