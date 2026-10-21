@@ -403,7 +403,7 @@ with tab4:
         if matched_edges or matched_nodes:
             st.write(f"Dựa vào trí nhớ dài hạn, tôi tìm thấy các thông tin sau:")
             for node in matched_nodes:
-                st.markdown(- **Thực thể:** `{node}` (Loại: `{memory.nodes[node].get('type')}`)")
+                st.markdown(f"- **Thực thể:** `{node}` (Loại: `{memory.nodes[node].get('type')}`)")
             for edge in matched_edges:
                 st.markdown(- `{edge['source']}` **{edge['relation']}** `{edge['target']}` *(Trọng số: {edge['weight']})*")
         else:
