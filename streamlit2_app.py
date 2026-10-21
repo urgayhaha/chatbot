@@ -114,7 +114,7 @@ class AGIReflectionLoop:
         self.memory.save_to_file()
         return pruned
 
-# ==================== 4. CURIOSITY ENGINE ====================
+# ==================== 4. CURIOSITY ENGINE (thang 0-10) ====================
 class ImprovedCuriosityEngine:
     def __init__(self, memory_system):
         self.memory = memory_system
@@ -134,22 +134,29 @@ class ImprovedCuriosityEngine:
         scores = {}
         degree = sum(1 for e in self.memory.edges if e["source"] == node_id or e["target"] == node_id)
         scores["isolation"] = max(0.0, 3.0 - degree * 0.8)
+
         age_hours = (time.time() - node.get("created_at", time.time())) / 3600
         scores["recency"] = max(0.0, 2.0 * (1.0 - min(age_hours / 24, 1.0)))
+
         times_explored = self.node_visit_count.get(node_id, 0)
         scores["novelty"] = 2.5 if times_explored == 0 else max(0, 1.5 - times_explored * 0.5)
+
         last_time = self.last_exploration_time.get(node_id, 0)
         hours_since = (time.time() - last_time) / 3600 if last_time > 0 else 24
         scores["staleness"] = min(2.0, hours_since / 6)
+
         scores["type_bonus"] = 1.5 if node_type in ["Khái niệm thô", "Unknown", ""] else 0.5
+
         weak_links = sum(1 for e in self.memory.edges
                          if (e["source"] == node_id or e["target"] == node_id) and e["weight"] < 2.0)
         scores["weak_links"] = min(1.5, weak_links * 0.5)
 
-        total = sum(scores.values())
+        raw_total = sum(scores.values())
         if node_id in self.last_exploration_time and time.time() - self.last_exploration_time[node_id] < 120:
-            total *= 0.3
-        scores["total"] = round(max(0, total), 2)
+            raw_total *= 0.3
+
+        # Chuẩn hóa về thang 0-10 (max lý thuyết = 12.5)
+        scores["total"] = round(min(10.0, max(0.0, raw_total / 1.25)), 2)
         return scores
 
     def scan_and_rank(self, top_k=10):
@@ -157,7 +164,7 @@ class ImprovedCuriosityEngine:
         for node_id in self.memory.nodes:
             detail = self.compute_curiosity_score(node_id)
             total = detail.get("total", 0)
-            if total > 1.0:
+            if total > 0.8:
                 results.append({
                     "entity": node_id,
                     "score": total,
@@ -174,16 +181,14 @@ class ImprovedCuriosityEngine:
         candidates = [r for r in ranked if r["entity"] not in recent]
         if not candidates:
             candidates = ranked
-        top = candidates[:3]
-        return random.choice(top)["entity"]
+        return random.choice(candidates[:3])["entity"]
 
     def should_explore(self) -> bool:
         ranked = self.scan_and_rank()
-        if not ranked or ranked[0]["score"] < 2.0:
+        if not ranked or ranked[0]["score"] < 1.6:
             return False
-        if self.exploration_history:
-            if time.time() - self.exploration_history[-1]["timestamp"] < 8:
-                return False
+        if self.exploration_history and time.time() - self.exploration_history[-1]["timestamp"] < 8:
+            return False
         return True
 
     def act_on_curiosity(self, entity_id: str) -> dict:
@@ -280,7 +285,7 @@ curiosity = st.session_state.curiosity_engine
 
 # ==================== 6. GIAO DIỆN ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
-st.caption("Curiosity thông minh + Tự kích hoạt")
+st.caption("Curiosity Score (thang 0–10)")
 
 st.sidebar.header("⚙️ Điều khiển")
 if st.session_state.background_running:
@@ -322,15 +327,15 @@ with tab2:
     c1.metric("Nodes", len(memory.nodes))
     c2.metric("Edges", len(memory.edges))
     if memory.edges:
-        df = pd.DataFrame([{"Từ": e["source"], "Quan hệ": e["relation"], "Đến": e["target"], "W": round(e["weight"],1)} for e in memory.edges])
+        df = pd.DataFrame([{"Từ": e["source"], "Quan hệ": e["relation"], "Đến": e["target"], "W": round(e["weight"], 1)} for e in memory.edges])
         st.dataframe(df, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("Curiosity Score")
+    st.subheader("Curiosity Score (0–10)")
     ranked = curiosity.scan_and_rank()
     if ranked:
         for item in ranked[:8]:
-            with st.expander(f"**{item['entity']}** — {item['score']}"):
+            with st.expander(f"**{item['entity']}** — {item['score']}/10"):
                 st.write(f"Loại: `{item.get('type')}`")
                 if item.get("breakdown"):
                     st.json(item["breakdown"])
