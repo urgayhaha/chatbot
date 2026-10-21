@@ -7,11 +7,10 @@ import pandas as pd
 import random
 import requests
 from datetime import datetime
-from google import genai
 
 st.set_page_config(page_title="AGI Cognitive Dashboard", page_icon="🧠", layout="wide")
 
-# ==================== 1. BỘ NHỚ DÀI HẠN ====================
+# ==================== 1. BỘ NHỚ ====================
 class AGIKnowledgeMemory:
     def __init__(self, filepath="agi_long_term_memory.json"):
         self.filepath = filepath
@@ -51,10 +50,8 @@ class AGIKnowledgeMemory:
         })
 
     def save_to_file(self):
-        data = {
-            "nodes": self.nodes, "edges": self.edges,
-            "meta": {"total_nodes": len(self.nodes), "total_edges": len(self.edges), "saved_at": time.time()}
-        }
+        data = {"nodes": self.nodes, "edges": self.edges,
+                "meta": {"total_nodes": len(self.nodes), "total_edges": len(self.edges), "saved_at": time.time()}}
         with open(self.filepath, "w", encoding="utf-8") as f:
             json.dump(data, f, indent=2, ensure_ascii=False)
 
@@ -65,7 +62,7 @@ class AGIKnowledgeMemory:
                 self.nodes = data.get("nodes", {})
                 self.edges = data.get("edges", [])
 
-# ==================== 2. TRÍCH XUẤT TRI THỨC ====================
+# ==================== 2. EXTRACTOR ====================
 class AGIKnowledgeExtractor:
     def __init__(self, memory_system):
         self.memory = memory_system
@@ -73,7 +70,6 @@ class AGIKnowledgeExtractor:
             (r"(.+?)\s+(là|bao gồm|được phân loại là|thuộc về)\s+(.+)", "là / thuộc về"),
             (r"(.+?)\s+(sử dụng|áp dụng|dùng|vận hành bằng)\s+(.+)", "sử dụng"),
             (r"(.+?)\s+(phát triển|tạo ra|nghiên cứu|mô phỏng)\s+(.+)", "tạo ra / mô phỏng"),
-            (r"(.+?)\s+(yêu cầu|cần có|phụ thuộc vào)\s+(.+)", "yêu cầu"),
             (r"(.+?)\s+(kết nối với|liên kết với|tương tác với)\s+(.+)", "kết nối với"),
         ]
 
@@ -94,199 +90,182 @@ class AGIKnowledgeExtractor:
                         count += 1
                         matched = True
                         break
-            if not matched:
-                clean_concept = sentence.strip()
-                if len(clean_concept) >= 2:
-                    self.memory.add_entity(clean_concept, "Khái niệm thô")
-                    count += 1
+            if not matched and len(sentence.strip()) >= 2:
+                self.memory.add_entity(sentence.strip(), "Khái niệm thô")
+                count += 1
         self.memory.save_to_file()
         return count
 
-# ==================== 3. WORLD MODEL TÍCH HỢP GEMINI AI ====================
-class AGIWorldModel:
+# ==================== 3. CÔNG CỤ BÊN NGOÀI ====================
+def search_wikipedia(query: str) -> str:
+    """Tìm kiếm Wikipedia (miễn phí)"""
+    try:
+        url = f"https://en.wikipedia.org/api/rest_v1/page/summary/{query.replace(' ', '_')}"
+        r = requests.get(url, timeout=6, headers={"User-Agent": "AGI-Dashboard/1.0"})
+        if r.status_code == 200:
+            data = r.json()
+            extract = data.get("extract", "")
+            return extract[:400] if extract else "Không có tóm tắt"
+        return "Không tìm thấy trên Wikipedia"
+    except Exception as e:
+        return f"Lỗi Wikipedia: {str(e)}"
+
+def call_gemini(prompt: str, api_key: str) -> str:
+    """Gọi Gemini API"""
+    if not api_key:
+        return "Chưa có API Key"
+    try:
+        from google import genai
+        client = genai.Client(api_key=api_key)
+        response = client.models.generate_content(
+            model="gemini-2.0-flash",
+            contents=prompt,
+        )
+        return response.text.strip()[:500]
+    except Exception as e:
+        return f"Lỗi Gemini: {str(e)}"
+
+# ==================== 4. CURIOSITY + EXTERNAL TOOLS ====================
+class ExternalCuriosityEngine:
     def __init__(self, memory_system):
         self.memory = memory_system
+        self.exploration_history = []
+        self.last_action_time = 0
 
-    def simulate_with_ai(self, node_id: str, api_key: str) -> dict:
-        if not api_key:
-            return {
-                "domain": "Fallback Rule",
-                "detected_action": "manual_input_required",
-                "action_description": "Chưa nhập Gemini API Key",
-                "predicted_outcome": "Vui lòng nhập API Key ở sidebar để AI phân tích thực tế.",
-                "estimated_risk": 0.0,
-                "simulated_success": False
-            }
-        
-        try:
-            client = genai.Client(api_key=api_key)
-            prompt = f"""
-            Bạn là World Model (Mô hình thế giới vật lý và nhận thức) của hệ thống AGI.
-            Hãy phân tích tình huống/thực thể sau đây: "{node_id}"
-            
-            Hãy đóng vai trò là một mô hình động lực học và nhân quả nâng cao, trả về kết quả phân tích theo đúng cấu trúc JSON gồm 5 trường sau (không kèm markdown thừa):
-            {{
-              "domain": "Physics & Dynamics hoặc Cognitive Science",
-              "detected_action": "tên hành động cốt lõi bằng tiếng Anh",
-              "action_description": "mô tả ngắn gọn hành động bằng tiếng Việt",
-              "predicted_outcome": "dự đoán chi tiết hệ quả vật lý, vận tốc, quỹ đạo hoặc quy luật nhân quả của tình huống trên bằng tiếng Việt",
-              "estimated_risk": số thực từ 0.0 đến 1.0 đánh giá mức độ nguy hiểm hoặc rủi ro
-            }}
-            """
-            
-            # Sử dụng tên model gemini-2.5-flash chuẩn
-            response = client.models.generate_content(
-                model='gemini-3.8-flash',
-                contents=prompt,
-            )
-            
-            clean_text = response.text.strip()
-            clean_text = re.sub(r"^```json\s*", "", clean_text)
-            clean_text = re.sub(r"\s*```$", "", clean_text)
-            
-            data = json.loads(clean_text)
-            data["target"] = node_id
-            data["simulated_success"] = True
-            return data
-            
-        except Exception as e:
-            return {
-                "target": node_id,
-                "domain": "AI Error",
-                "detected_action": "error",
-                "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
-                "predicted_outcome": f"Chi tiết lỗi: {str(e)}",
-                "estimated_risk": 1.0,
-                "simulated_success": False
-            }
-# ==================== 4. ĐỘNG CƠ TÒ MÒ ====================
-class AdvancedCuriosityEngine:
-    def __init__(self, memory_system, world_model: AGIWorldModel):
-        self.memory = memory_system
-        self.world_model = world_model
-        self.active_goals = []
+    def get_candidates(self):
+        """Lấy các node thật (không phải node hệ thống tạo)"""
+        skip_types = ["Giả thuyết", "Câu hỏi khám phá", "Thông tin bên ngoài", "Phân tích AI"]
+        return [n for n, info in self.memory.nodes.items()
+                if info.get("type") not in skip_types]
 
-    def scan_and_rank(self, top_k=50):
-        results = []
-        for node_id in self.memory.nodes:
-            results.append({
-                "entity": node_id,
-                "score": 5.0,
-                "type": self.memory.nodes[node_id].get("type", "Unknown")
-            })
-        return results[:top_k]
+    def should_act(self) -> bool:
+        if time.time() - self.last_action_time < 10:
+            return False
+        return len(self.get_candidates()) > 0
 
-    def update_long_term_goals(self):
-        ranked = self.scan_and_rank(top_k=5)
-        self.active_goals = [r["entity"] for r in ranked]
+    def external_explore(self, entity_id: str, api_key: str = "") -> dict:
+        """Khám phá bên ngoài: Wikipedia hoặc Gemini"""
+        self.last_action_time = time.time()
+        action = random.choice(["wikipedia", "gemini"] if api_key else ["wikipedia"])
 
-    def auto_explore_once(self) -> dict:
-        self.update_long_term_goals()
-        if not self.active_goals:
+        if action == "wikipedia":
+            info = search_wikipedia(entity_id)
+            if "Không tìm thấy" not in info and "Lỗi" not in info:
+                node_name = f"wiki_{int(time.time()) % 100000}"
+                self.memory.add_entity(node_name, "Thông tin bên ngoài", {"source": "wikipedia", "content": info})
+                self.memory.add_relation(entity_id, node_name, "có thông tin từ wikipedia", weight=2.5)
+                self.memory.save_to_file()
+                return {"success": True, "action": "wikipedia", "target": entity_id, "detail": info[:100]}
+            return {"success": False, "action": "wikipedia", "detail": info}
+
+        else:  # gemini
+            prompt = f"Giải thích ngắn gọn (2-3 câu) về khái niệm hoặc thực thể: '{entity_id}'. Trả lời bằng tiếng Việt."
+            answer = call_gemini(prompt, api_key)
+            if "Lỗi" not in answer and "Chưa có" not in answer:
+                node_name = f"ai_{int(time.time()) % 100000}"
+                self.memory.add_entity(node_name, "Phân tích AI", {"source": "gemini", "content": answer})
+                self.memory.add_relation(entity_id, node_name, "được phân tích bởi AI", weight=2.5)
+                self.memory.save_to_file()
+                return {"success": True, "action": "gemini", "target": entity_id, "detail": answer[:100]}
+            return {"success": False, "action": "gemini", "detail": answer}
+
+    def auto_explore_once(self, api_key: str = "") -> dict:
+        if not self.should_act():
+            return {"success": False, "reason": "Đang nghỉ"}
+        candidates = self.get_candidates()
+        if not candidates:
             return {"success": False, "reason": "Không có mục tiêu"}
-        target = self.active_goals[0]
-        return {"success": True, "target": target, "action": "ai_world_model_active"}
+        # Ưu tiên node chưa có thông tin bên ngoài
+        target = random.choice(candidates)
+        result = self.external_explore(target, api_key)
+        if result.get("success"):
+            self.exploration_history.append({"target": target, "action": result["action"], "time": time.time()})
+        return result
 
-# ==================== 5. KHỞI TẠO TRẠNG THÁI ====================
+# ==================== 5. KHỞI TẠO ====================
 if "agi_memory" not in st.session_state:
     st.session_state.agi_memory = AGIKnowledgeMemory()
 if "background_running" not in st.session_state:
     st.session_state.background_running = False
-
-if "world_model_ai_v3" not in st.session_state:
-    st.session_state.world_model_ai_v3 = AGIWorldModel(st.session_state.agi_memory)
-
-if "curiosity_engine_ai_v3" not in st.session_state:
-    st.session_state.curiosity_engine_ai_v3 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v3)
-
+if "curiosity" not in st.session_state:
+    st.session_state.curiosity = ExternalCuriosityEngine(st.session_state.agi_memory)
 if "explore_log" not in st.session_state:
     st.session_state.explore_log = []
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
-world_model = st.session_state.world_model_ai_v3
-curiosity = st.session_state.curiosity_engine_ai_v3
+curiosity = st.session_state.curiosity
 
-# ==================== 6. GIAO DIỆN DASHBOARD ====================
-st.title("🧠 AGI Cognitive Core Dashboard")
-st.caption("Kiến trúc đỉnh cao: Động lực nội tại + World Model tích hợp Gemini AI Phân tích Động lực học")
+# ==================== 6. GIAO DIỆN ====================
+st.title("🧠 AGI Cognitive Dashboard")
+st.caption("Kết nối bên ngoài: Wikipedia + Gemini tự động")
 
-st.sidebar.header("⚙️ Cấu hình AI & Hệ thống")
-gemini_api_key = st.sidebar.text_input("🔑 Nhập Gemini API Key:", type="password", help="Nhập khóa API để AI phân tích World Model trực tiếp.")
-
-if st.sidebar.button("🛑 Dừng chạy ngầm" if st.session_state.background_running else "🟢 Bật chạy ngầm", use_container_width=True):
+st.sidebar.header("⚙️ Cấu hình")
+gemini_key = st.sidebar.text_input("Gemini API Key (tùy chọn):", type="password")
+if st.sidebar.button("🛑 Dừng" if st.session_state.background_running else "🟢 Bật chạy ngầm", use_container_width=True):
     st.session_state.background_running = not st.session_state.background_running
     st.rerun()
 
-tab1, tab2, tab3, tab4 = st.tabs(["📥 Nhập liệu & File", "📊 Đồ thị Tri thức", "🌍 AI World Model Phân tích", "🤖 Trợ lý LLM"])
+if st.session_state.explore_log:
+    st.sidebar.divider()
+    st.sidebar.markdown("### Nhật ký")
+    for log in reversed(st.session_state.explore_log[-5:]):
+        st.sidebar.caption(f"• {log}")
+
+tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu", "📊 Đồ thị", "🌐 Khám phá bên ngoài"])
 
 with tab1:
-    st.subheader("Nạp văn bản hoặc Tệp tin Local")
-    raw = st.text_area("Nhập sự việc/thực thể cần phân tích:", "Con mèo đang băng qua đường nhưng nhiều xe cộ đang di chuyển rất nhanh.", height=100)
-    if st.button("🚀 Trích xuất vào Đồ thị", use_container_width=True):
+    st.subheader("Nạp văn bản")
+    raw = st.text_area("Văn bản:", "AGI sử dụng mạng neural.\nKitsune là sinh vật huyền thoại.", height=100)
+    if st.button("🚀 Trích xuất", use_container_width=True):
         n = extractor.extract_and_ingest(raw)
-        st.success(f"Đã nạp {n} thực thể vào bộ nhớ tri thức!")
+        st.success(f"Đã nạp {n} thực thể")
         st.rerun()
 
 with tab2:
-    st.subheader("Bảng Đồ thị Tri thức")
     c1, c2 = st.columns(2)
-    c1.metric("Tổng Thực thể (Nodes)", len(memory.nodes))
-    c2.metric("Tổng Mối quan hệ (Edges)", len(memory.edges))
-    
-    ranked_nodes = curiosity.scan_and_rank(top_k=50)
-    if ranked_nodes:
-        df_nodes = pd.DataFrame([{
-            "Thực thể": item["entity"].upper(),
-            "Phân loại": item["type"],
-        } for item in ranked_nodes])
-        st.dataframe(df_nodes, use_container_width=True, hide_index=True)
+    c1.metric("Nodes", len(memory.nodes))
+    c2.metric("Edges", len(memory.edges))
+    if memory.edges:
+        df = pd.DataFrame([{"Từ": e["source"], "Quan hệ": e["relation"], "Đến": e["target"], "W": e["weight"]} for e in memory.edges])
+        st.dataframe(df, use_container_width=True, hide_index=True)
 
 with tab3:
-    st.subheader("🌍 AI World Model: Phân tích Sự kiện Thời gian thực")
-    st.info("Hệ thống sẽ gọi trực tiếp Gemini AI để mô phỏng vật lý, tốc độ phản ứng và dự đoán quỹ đạo sự kiện.")
-    
-    node_keys = list(memory.nodes.keys())
-    if node_keys:
-        selected_node = st.selectbox("Chọn thực thể để Gemini AI phân tích:", node_keys)
-        
-        if st.button("🔮 Yêu cầu Gemini AI Mô Phỏng Thế Giới", use_container_width=True):
-            if not gemini_api_key:
-                st.error("⚠️ Vui lòng nhập Gemini API Key ở thanh sidebar bên trái trước khi chạy phân tích AI!")
-            else:
-                with st.spinner("🤖 Gemini AI đang mô phỏng không gian và động lực học vật lý..."):
-                    pred = world_model.simulate_with_ai(selected_node, gemini_api_key)
-                
-                st.markdown("### 📝 Kết quả Phân tích từ Gemini AI World Model:")
-                st.markdown(f"- **Thực thể phân tích:** `{pred.get('target', '').upper()}`")
-                st.markdown(f"- **Lĩnh vực nhận diện:** `{pred.get('domain')}`")
-                st.markdown(f"- **Hành động cốt lõi:** `{pred.get('detected_action')}` *({pred.get('action_description')})*")
-                st.markdown(f"- **Hệ quả dự kiến & Quỹ đạo mô phỏng:** **{pred.get('predicted_outcome')}**")
-                st.markdown(f"- **Chỉ số rủi ro ước tính:** `{pred.get('estimated_risk')}`")
-                
-                if pred.get('simulated_success'):
-                    st.success("✅ **AI mô phỏng thành công:** Hệ thống đã hiểu rõ quy luật nhân quả của sự việc!")
+    st.subheader("Khám phá bên ngoài")
+    candidates = curiosity.get_candidates()
+    if candidates:
+        selected = st.selectbox("Chọn thực thể:", candidates)
+        c1, c2 = st.columns(2)
+        with c1:
+            if st.button("📖 Tìm Wikipedia", use_container_width=True):
+                res = curiosity.external_explore(selected, "")
+                if res.get("success"):
+                    st.success(res.get("detail"))
+                    st.session_state.explore_log.append(f"Wiki: {selected}")
+                    st.rerun()
                 else:
-                    st.error(f"❌ **Phân tích gặp sự cố:** {pred.get('predicted_outcome')}")
+                    st.warning(res.get("detail"))
+        with c2:
+            if st.button("🤖 Hỏi Gemini", use_container_width=True):
+                if not gemini_key:
+                    st.error("Cần nhập API Key")
+                else:
+                    res = curiosity.external_explore(selected, gemini_key)
+                    if res.get("success"):
+                        st.success(res.get("detail"))
+                        st.session_state.explore_log.append(f"Gemini: {selected}")
+                        st.rerun()
+                    else:
+                        st.warning(res.get("detail"))
     else:
-        st.warning("Chưa có thực thể trong bộ nhớ. Hãy sang tab 'Nhập liệu' để thêm sự việc (VD: con mèo đang băng qua đường...).")
+        st.info("Chưa có thực thể. Hãy nạp văn bản trước.")
 
-with tab4:
-    st.subheader("Trợ lý LLM / Hỏi đáp tri thức AGI")
-    user_query = st.text_input("Đặt câu hỏi cho AGI:")
-    if user_query:
-        query_lower = user_query.lower()
-        matched_nodes = [n for n in memory.nodes if query_lower in n]
-        if matched_nodes:
-            for node in matched_nodes:
-                st.markdown(f"- Phát hiện thực thể: `{node.upper()}` trong bộ nhớ trí tuệ.")
-        else:
-            st.warning("Không tìm thấy trong bộ nhớ dài hạn.")
-
-# ==================== 7. VÒNG LẶP NGẦM ====================
+# ==================== 7. BACKGROUND (tự động gọi công cụ) ====================
 if st.session_state.background_running:
-    result = curiosity.auto_explore_once()
+    result = curiosity.auto_explore_once(gemini_key)
     if result.get("success"):
-        st.toast(f"🌍 Vòng lặp ngầm đang quét mục tiêu: {result.get('target').upper()}")
-    time.sleep(5)
+        msg = f"{result['action'].upper()}: {result['target']} → {result.get('detail','')[:60]}"
+        st.toast(f"🌐 {msg}")
+        st.session_state.explore_log.append(msg)
+    time.sleep(8)
     st.rerun()
