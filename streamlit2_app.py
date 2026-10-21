@@ -304,15 +304,23 @@ with tab2:
                 "Thời gian tạo": created
             })
         df_nodes = pd.DataFrame(table_data)
-        st.dataframe(df_nodes, use_container_width=True, hide_index=True)
+        
+        # Cấu hình hiển thị bảng rộng toàn màn hình, không bị mất chữ
+        st.dataframe(df_nodes, use_container_width=True, hide_index=True, height=350)
     else:
         st.info("Chưa có thực thể trong bộ nhớ.")
 
     st.divider()
     if memory.edges:
         st.markdown("### 🔗 Danh sách Mối quan hệ")
-        df_edges = pd.DataFrame([{"Từ": e["source"].upper(), "Quan hệ": f"-[ {e['relation']} ]->", "Đến": e["target"].upper(), "Trọng số": round(e["weight"], 1)} for e in memory.edges])
-        st.dataframe(df_edges, use_container_width=True, hide_index=True)
+        df_edges = pd.DataFrame([{
+            "Từ": e["source"].upper(), 
+            "Quan hệ": f"-[ {e['relation']} ]->", 
+            "Đến": e["target"].upper(), 
+            "Trọng số": round(e["weight"], 1)
+        } for e in memory.edges])
+        
+        st.dataframe(df_edges, use_container_width=True, hide_index=True, height=350)
 
 with tab3:
     st.subheader("Trợ lý LLM / Hỏi đáp tri thức AGI")
