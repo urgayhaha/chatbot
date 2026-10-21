@@ -10,11 +10,8 @@ from datetime import datetime
 
 st.set_page_config(page_title="AGI Cognitive Dashboard", page_icon="🧠", layout="wide")
 
-# ==================== CẤU HÌNH API ====================
+# ==================== CẤU HÌNH ====================
 GEMINI_API_KEY = "AQ.Ab8RN6I52wKSVq78IGjJl_zbSKfCVEgLDIEzhC_yES-ouv99KA"
-GOOGLE_API_KEY = ""      # Điền Google Custom Search API Key
-GOOGLE_CX = ""           # Điền Search Engine ID (cx)
-
 KNOWLEDGE_FOLDER = "knowledge_files"
 os.makedirs(KNOWLEDGE_FOLDER, exist_ok=True)
 
@@ -120,19 +117,24 @@ def search_wikipedia(query: str) -> dict:
             continue
     return {}
 
-def search_google(query: str, api_key: str, cx: str, num: int = 2) -> list:
-    if not api_key or not cx:
-        return []
+def search_duckduckgo(query: str) -> str:
     try:
-        url = "https://www.googleapis.com/customsearch/v1"
-        params = {"key": api_key, "cx": cx, "q": query, "num": num}
-        r = requests.get(url, params=params, timeout=8)
+        url = "https://api.duckduckgo.com/"
+        params = {"q": query, "format": "json", "no_html": 1, "skip_disambig": 1}
+        r = requests.get(url, params=params, timeout=7, headers={"User-Agent": "AGI-Dashboard/1.0"})
         if r.status_code == 200:
-            return [{"title": it.get("title",""), "snippet": it.get("snippet",""), "link": it.get("link","")}
-                    for it in r.json().get("items", [])]
+            data = r.json()
+            abstract = data.get("AbstractText", "")
+            if abstract and len(abstract) > 30:
+                return abstract[:450]
+            topics = data.get("RelatedTopics", [])
+            if isinstance(topics, list):
+                for t in topics[:2]:
+                    if isinstance(t, dict) and t.get("Text") and len(t["Text"]) > 30:
+                        return t["Text"][:400]
+        return ""
     except:
-        pass
-    return []
+        return ""
 
 def call_gemini(prompt: str, api_key: str) -> str:
     if not api_key:
@@ -182,8 +184,10 @@ class UpgradedCuriosityEngine:
         if not text or len(text) < 30:
             return 0.2
         s = 0.5
-        if len(text) > 100: s += 0.2
-        if any(k in text.lower() for k in ["là", "được", "có", "sử dụng"]): s += 0.2
+        if len(text) > 100:
+            s += 0.2
+        if any(k in text.lower() for k in ["là", "được", "có", "sử dụng", "is ", "are "]):
+            s += 0.2
         return min(1.0, s)
 
     def explore(self, entity_id: str) -> dict:
@@ -194,45 +198,43 @@ class UpgradedCuriosityEngine:
         wiki = search_wikipedia(entity_id)
         if wiki:
             sc = self.evaluate(wiki["extract"])
-            node = f"wiki_{int(time.time())%100000}"
+            node = f"wiki_{int(time.time()) % 100000}"
             self.memory.add_entity(node, "Thông tin bên ngoài", {
                 "source": f"wiki-{wiki['lang']}", "content": wiki["extract"],
-                "about": entity_id, "usefulness": round(sc,2)
+                "about": entity_id, "usefulness": round(sc, 2)
             })
-            self.memory.add_relation(entity_id, node, "từ wikipedia", weight=round(2+sc,1))
+            self.memory.add_relation(entity_id, node, "từ wikipedia", weight=round(2 + sc, 1))
             results.append({"source": f"Wiki-{wiki['lang']}", "score": sc, "preview": wiki["extract"][:90]})
 
-        # Google
-        if GOOGLE_API_KEY and GOOGLE_CX:
-            for i, g in enumerate(search_google(entity_id, GOOGLE_API_KEY, GOOGLE_CX)):
-                snip = g.get("snippet","")
-                if len(snip) > 25:
-                    sc = self.evaluate(snip)
-                    node = f"gg_{int(time.time())%100000}_{i}"
-                    self.memory.add_entity(node, "Thông tin bên ngoài", {
-                        "source": "google", "content": f"{g.get('title','')}: {snip}",
-                        "about": entity_id, "url": g.get("link",""), "usefulness": round(sc,2)
-                    })
-                    self.memory.add_relation(entity_id, node, "từ google", weight=round(1.8+sc,1))
-                    results.append({"source": "Google", "score": sc, "preview": snip[:80]})
+        # DuckDuckGo
+        ddg = search_duckduckgo(entity_id)
+        if ddg:
+            sc = self.evaluate(ddg)
+            node = f"ddg_{int(time.time()) % 100000}"
+            self.memory.add_entity(node, "Thông tin bên ngoài", {
+                "source": "duckduckgo", "content": ddg,
+                "about": entity_id, "usefulness": round(sc, 2)
+            })
+            self.memory.add_relation(entity_id, node, "từ duckduckgo", weight=round(1.8 + sc, 1))
+            results.append({"source": "DuckDuckGo", "score": sc, "preview": ddg[:90]})
 
         # Gemini
         best = max([r["score"] for r in results], default=0)
         if GEMINI_API_KEY and best < 0.7:
-            ai = call_gemini(f"Giải thích ngắn gọn bằng tiếng Việt về '{entity_id}'.", GEMINI_API_KEY)
+            ai = call_gemini(f"Giải thích ngắn gọn bằng tiếng Việt về '{entity_id}'. Tập trung vào định nghĩa.", GEMINI_API_KEY)
             if ai:
                 sc = self.evaluate(ai)
-                node = f"ai_{int(time.time())%100000}"
+                node = f"ai_{int(time.time()) % 100000}"
                 self.memory.add_entity(node, "Phân tích AI", {
-                    "source": "gemini", "content": ai, "about": entity_id, "usefulness": round(sc,2)
+                    "source": "gemini", "content": ai, "about": entity_id, "usefulness": round(sc, 2)
                 })
-                self.memory.add_relation(entity_id, node, "phân tích AI", weight=round(2+sc,1))
+                self.memory.add_relation(entity_id, node, "phân tích AI", weight=round(2 + sc, 1))
                 results.append({"source": "Gemini", "score": sc, "preview": ai[:90]})
 
         # File local
         for lf in read_local_files():
             if entity_id.lower() in lf["content"].lower():
-                node = f"file_{int(time.time())%100000}"
+                node = f"file_{int(time.time()) % 100000}"
                 self.memory.add_entity(node, "Nội dung file", {
                     "source": lf["file"], "content": lf["content"][:400], "about": entity_id
                 })
@@ -243,10 +245,13 @@ class UpgradedCuriosityEngine:
         self.memory.save_to_file()
         if results:
             best = max(results, key=lambda x: x["score"])
-            return {"success": True, "target": entity_id,
-                    "detail": f"{len(results)} nguồn | Tốt nhất: {best['source']} ({best['score']:.2f})",
-                    "results": results}
-        return {"success": False, "detail": "Không thu thập được"}
+            return {
+                "success": True,
+                "target": entity_id,
+                "detail": f"{len(results)} nguồn | Tốt nhất: {best['source']} ({best['score']:.2f})",
+                "results": results
+            }
+        return {"success": False, "detail": "Không thu thập được thông tin"}
 
     def auto_once(self) -> dict:
         if not self.should_act():
@@ -272,7 +277,7 @@ curiosity = st.session_state.curiosity
 
 # ==================== 6. GIAO DIỆN ====================
 st.title("🧠 AGI Cognitive Dashboard")
-st.caption("Wikipedia + Google + Gemini + Upload file")
+st.caption("Wikipedia + DuckDuckGo + Gemini + Upload file")
 
 st.sidebar.header("Điều khiển")
 if st.sidebar.button("🛑 Dừng" if st.session_state.running else "🟢 Bật chạy ngầm", use_container_width=True):
@@ -289,7 +294,7 @@ tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu & Upload", "📊 Thông tin", "�
 
 with tab1:
     st.subheader("Nạp văn bản")
-    raw = st.text_area("Văn bản:", "Mèo là động vật nuôi.\nAGI là trí tuệ nhân tạo.", height=80)
+    raw = st.text_area("Văn bản:", "Mèo là động vật nuôi.\nAGI là trí tuệ nhân tạo tổng quát.", height=80)
     if st.button("Trích xuất văn bản", use_container_width=True):
         n = extractor.extract_and_ingest(raw)
         st.success(f"Đã nạp {n}")
@@ -297,7 +302,7 @@ with tab1:
 
     st.divider()
     st.subheader("Upload file .txt")
-    uploaded = st.file_uploader("Chọn file kiến thức (.txt)", type=["txt"], accept_multiple_files=True)
+    uploaded = st.file_uploader("Chọn file kiến thức", type=["txt"], accept_multiple_files=True)
     if uploaded:
         for f in uploaded:
             path = os.path.join(KNOWLEDGE_FOLDER, f.name)
@@ -306,10 +311,9 @@ with tab1:
             st.success(f"Đã lưu: {f.name}")
         st.rerun()
 
-    # Liệt kê file đã có
     files = [f for f in os.listdir(KNOWLEDGE_FOLDER) if f.endswith(".txt")]
     if files:
-        st.caption(f"File trong thư mục: {', '.join(files)}")
+        st.caption("File hiện có: " + ", ".join(files))
 
 with tab2:
     c1, c2 = st.columns(2)
@@ -321,13 +325,11 @@ with tab2:
         st.subheader("Thông tin đã thu thập")
         for nid, info in reversed(infos[-12:]):
             p = info.get("properties", {})
-            label = f"[{p.get('source','')}] {p.get('about','?')}"
+            label = f"[{p.get('source', '')}] {p.get('about', '?')}"
             if p.get("usefulness"):
                 label += f" ({p['usefulness']})"
             with st.expander(label):
                 st.write(p.get("content", ""))
-                if p.get("url"):
-                    st.caption(p["url"])
     else:
         st.info("Chưa có thông tin bên ngoài.")
 
@@ -336,7 +338,7 @@ with tab3:
     if cands:
         sel = st.selectbox("Chọn thực thể:", cands)
         if st.button("🔍 Khám phá đa nguồn", use_container_width=True):
-            with st.spinner("Đang tìm Wikipedia, Google, Gemini, file..."):
+            with st.spinner("Đang tìm Wikipedia, DuckDuckGo, Gemini, file..."):
                 res = curiosity.explore(sel)
             if res.get("success"):
                 st.success(res["detail"])
@@ -345,7 +347,7 @@ with tab3:
                 st.session_state.log.append(f"{sel} → {res['detail']}")
                 st.rerun()
             else:
-                st.warning(res.get("detail"))
+                st.warning(res.get("detail", "Không thu thập được"))
     else:
         st.info("Hãy nạp văn bản hoặc upload file trước.")
 
