@@ -134,7 +134,7 @@ class AGIWorldModel:
             }}
             """
             
-            # Sử dụng model gemini-2.5-flash chuẩn hiện tại
+            # Sử dụng tên model gemini-2.5-flash chuẩn
             response = client.models.generate_content(
                 model='gemini-2.5-flash',
                 contents=prompt,
@@ -159,7 +159,6 @@ class AGIWorldModel:
                 "estimated_risk": 1.0,
                 "simulated_success": False
             }
-
 # ==================== 4. ĐỘNG CƠ TÒ MÒ ====================
 class AdvancedCuriosityEngine:
     def __init__(self, memory_system, world_model: AGIWorldModel):
