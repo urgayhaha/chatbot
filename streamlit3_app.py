@@ -194,19 +194,19 @@ if "agi_memory" not in st.session_state:
 if "background_running" not in st.session_state:
     st.session_state.background_running = False
 
-if "world_model_ai_v2" not in st.session_state:
-    st.session_state.world_model_ai_v2 = AGIWorldModel(st.session_state.agi_memory)
+if "world_model_ai_v3" not in st.session_state:
+    st.session_state.world_model_ai_v3 = AGIWorldModel(st.session_state.agi_memory)
 
-if "curiosity_engine_ai_v2" not in st.session_state:
-    st.session_state.curiosity_engine_ai_v2 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v2)
+if "curiosity_engine_ai_v3" not in st.session_state:
+    st.session_state.curiosity_engine_ai_v3 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v3)
 
 if "explore_log" not in st.session_state:
     st.session_state.explore_log = []
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
-world_model = st.session_state.world_model_ai_v2
-curiosity = st.session_state.curiosity_engine_ai_v2
+world_model = st.session_state.world_model_ai_v3
+curiosity = st.session_state.curiosity_engine_ai_v3
 
 # ==================== 6. GIAO DIỆN DASHBOARD ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
