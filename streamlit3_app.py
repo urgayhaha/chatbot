@@ -112,20 +112,18 @@ class AGIWorldModel:
         }
 
     def auto_decide_action(self, node_id: str) -> str:
-        """Tự động nhận diện tình trạng thực thể để chọn hành động phù hợp nhất"""
         degree = sum(1 for e in self.memory.edges if e["source"] == node_id or e["target"] == node_id)
         node_info = self.memory.nodes.get(node_id, {})
         node_type = node_info.get("type", "")
 
         if degree <= 1 or node_type == "Khái niệm thô":
-            return "fetch_internet"  # Cô lập hoặc thô thì cần cào internet bổ sung
+            return "fetch_internet"
         elif degree <= 3:
-            return "internal_goal_link" # Có liên kết vừa phải thì kết nối nội bộ
+            return "internal_goal_link"
         else:
-            return "create_hypothesis" # Đã phong phú thì tạo giả thuyết suy luận sâu
+            return "create_hypothesis"
 
     def simulate_and_predict(self, node_id: str) -> dict:
-        """Tự động nhận diện hành động và dự đoán hệ quả, rủi ro"""
         chosen_action = self.auto_decide_action(node_id)
         rule = self.causal_rules[chosen_action]
 
@@ -235,8 +233,6 @@ class AdvancedCuriosityEngine:
             return {"success": False, "reason": "Không có mục tiêu dài hạn"}
         
         target = self.active_goals[0]
-        
-        # World Model tự động nhận diện hành động và mô phỏng dự đoán
         prediction = self.world_model.simulate_and_predict(target)
         
         self.node_visit_count[target] = self.node_visit_count.get(target, 0) + 1
@@ -271,24 +267,25 @@ class AdvancedCuriosityEngine:
         res["prediction_info"] = prediction
         return res
 
-# ==================== 5. KHỞI TẠO TRẠNG THÁI ====================
+# ==================== 5. KHỞI TẠO TRẠNG THÁI AN TOÀN ====================
 if "agi_memory" not in st.session_state:
     st.session_state.agi_memory = AGIKnowledgeMemory()
 if "background_running" not in st.session_state:
     st.session_state.background_running = False
 
-if "world_model" not in st.session_state:
-    st.session_state.world_model = AGIWorldModel(st.session_state.agi_memory)
+# Sử dụng khóa mới v2 cho world model và v4 cho curiosity engine để tránh xung đột cache
+if "world_model_v2" not in st.session_state:
+    st.session_state.world_model_v2 = AGIWorldModel(st.session_state.agi_memory)
 
 if "curiosity_engine_v4" not in st.session_state:
-    st.session_state.curiosity_engine_v4 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model)
+    st.session_state.curiosity_engine_v4 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_v2)
 
 if "explore_log" not in st.session_state:
     st.session_state.explore_log = []
 
 memory = st.session_state.agi_memory
 extractor = AGIKnowledgeExtractor(memory)
-world_model = st.session_state.world_model
+world_model = st.session_state.world_model_v2
 curiosity = st.session_state.curiosity_engine_v4
 
 # ==================== 6. GIAO DIỆN DASHBOARD ====================
