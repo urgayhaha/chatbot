@@ -64,7 +64,7 @@ class AGIKnowledgeMemory:
                 self.nodes = data.get("nodes", {})
                 self.edges = data.get("edges", [])
 
-# ==================== 2. EXTRACTOR ====================
+# ==================== 2. EXTRACTOR (SỬA LỖI MẤT TỪ NGẮN) ====================
 class AGIKnowledgeExtractor:
     def __init__(self, memory_system):
         self.memory = memory_system
@@ -86,7 +86,7 @@ class AGIKnowledgeExtractor:
                 if match:
                     sub = re.sub(r'^(một|các|những|hệ thống|mô hình)\s+', '', match.group(1).strip(), flags=re.IGNORECASE)
                     obj = re.sub(r'^(một|các|những|hệ thống|mô hình)\s+', '', match.group(3).strip(), flags=re.IGNORECASE)
-                    if len(sub) > 1 and len(obj) > 1:
+                    if len(sub) >= 2 and len(obj) >= 2:
                         self.memory.add_entity(sub, "Thực thể chính")
                         self.memory.add_entity(obj, "Thực thể chính")
                         self.memory.add_relation(sub, obj, rel)
@@ -94,9 +94,11 @@ class AGIKnowledgeExtractor:
                         matched = True
                         break
             if not matched:
-                words = [w for w in sentence.split() if len(w) > 3]
-                if words:
-                    self.memory.add_entity(" ".join(words[:3]), "Khái niệm thô")
+                # Sửa đổi: giữ nguyên cụm từ hoặc lấy từ có độ dài >= 2 để tránh mất từ như "lùn", "AI"
+                clean_concept = sentence.strip()
+                if len(clean_concept) >= 2:
+                    self.memory.add_entity(clean_concept, "Khái niệm thô")
+                    count += 1
         self.memory.save_to_file()
         return count
 
@@ -158,7 +160,7 @@ class ImprovedCuriosityEngine:
         scores["total"] = round(min(10.0, max(0.0, raw_total / 1.25)), 2)
         return scores
 
-    def scan_and_rank(self, top_k=20):
+    def scan_and_rank(self, top_k=50):
         results = []
         for node_id in self.memory.nodes:
             detail = self.compute_curiosity_score(node_id)
@@ -173,7 +175,6 @@ class ImprovedCuriosityEngine:
         return results[:top_k]
 
     def fetch_wikipedia_knowledge(self, query: str) -> dict:
-        """Tự động cào tri thức từ Wikipedia API"""
         try:
             url = f"https://vi.wikipedia.org/w/api.php?action=query&list=search&srsearch={query}&format=json"
             headers = {"User-Agent": "AGICognitiveBot/1.0"}
@@ -189,7 +190,7 @@ class ImprovedCuriosityEngine:
                 self.memory.add_entity(external_node, "Kiến thức ngoài", {"source": "Wikipedia", "snippet": snippet})
                 self.memory.add_relation(query, external_node, "cào được từ internet", weight=4.0)
                 return {"success": True, "action": "fetch_internet", "detail": f"Cào dữ liệu Wikipedia '{title}': {snippet[:80]}..."}
-        except Exception as e:
+        except Exception:
             pass
         return {"success": False, "action": "fetch_internet", "detail": "Lỗi kết nối hoặc không tìm thấy internet."}
 
@@ -198,14 +199,12 @@ class ImprovedCuriosityEngine:
         if not ranked or ranked[0]["score"] < 1.0:
             return {"success": False, "reason": "Điểm tò mò quá thấp"}
         
-        target = ranked[0]["entity"] # Lấy thực thể có độ tò mò cao nhất
+        target = ranked[0]["entity"]
         self.node_visit_count[target] = self.node_visit_count.get(target, 0) + 1
         self.last_exploration_time[target] = time.time()
 
-        # Tự động cào Internet cho mục tiêu này
         res = self.fetch_wikipedia_knowledge(target)
         if not res.get("success"):
-            # Fallback nếu không cào được internet thì tạo liên kết nội bộ
             candidates = [n for n in self.memory.nodes if n != target]
             if candidates:
                 related = random.choice(candidates)
@@ -233,7 +232,7 @@ extractor = AGIKnowledgeExtractor(memory)
 reflector = AGIReflectionLoop(memory)
 curiosity = st.session_state.curiosity_engine
 
-# ==================== 6. GIAO DIỆN ====================
+# ==================== 6. GIAO DIỆN STREAMLIT ====================
 st.title("🧠 AGI Cognitive Core Dashboard")
 st.caption("Hệ thống tích hợp: Vòng lặp ngầm + Cào Internet tự động + Điểm tò mò trực tiếp trên bảng đồ")
 
@@ -273,14 +272,15 @@ with tab1:
     with c1:
         if st.button("🚀 Trích xuất", use_container_width=True):
             n = extractor.extract_and_ingest(raw)
-            st.success(f"Đã nạp {n} liên kết")
+            st.success(f"Đã nạp {n} thực thể/liên kết!")
             st.rerun()
     with c2:
         if st.button("🧠 Dọn rác", use_container_width=True):
             p = reflector.reflect_and_optimize()
-            st.warning(f"Đã xóa {p} thực thể rác")
+            st.warning(f"Đã xóa {p} thực thể rác!")
             st.rerun()
 
+# ==================== TAB 2: SỬA LỖI HIỂN THỊ BẢNG ĐẦY ĐỦ ====================
 with tab2:
     st.subheader("Đồ thị Tri thức & Thang đo Độ tò mò (0–10)")
     c1, c2 = st.columns(2)
@@ -300,13 +300,23 @@ with tab2:
             table_data.append({
                 "Thực thể": n_id.upper(),
                 "Phân loại": item["type"],
-                "Điểm Tò Mò (Curiosity)": f"⭐ {item['score']}/10",
+                "Điểm Tò Mò": f"⭐ {item['score']}/10",
                 "Thời gian tạo": created
             })
         df_nodes = pd.DataFrame(table_data)
         
-        # Cấu hình hiển thị bảng rộng toàn màn hình, không bị mất chữ
-        st.dataframe(df_nodes, use_container_width=True, hide_index=True, height=350)
+        # Cấu hình kéo giãn cột tự động, rộng hết màn hình
+        st.dataframe(
+            df_nodes, 
+            use_container_width=True, 
+            hide_index=True,
+            column_config={
+                "Thực thể": st.column_config.TextColumn("Thực thể", width="medium"),
+                "Phân loại": st.column_config.TextColumn("Phân loại", width="small"),
+                "Điểm Tò Mò": st.column_config.TextColumn("Điểm Tò Mò", width="small"),
+                "Thời gian tạo": st.column_config.TextColumn("Thời gian tạo", width="medium"),
+            }
+        )
     else:
         st.info("Chưa có thực thể trong bộ nhớ.")
 
@@ -314,13 +324,13 @@ with tab2:
     if memory.edges:
         st.markdown("### 🔗 Danh sách Mối quan hệ")
         df_edges = pd.DataFrame([{
-            "Từ": e["source"].upper(), 
+            "Từ thực thể": e["source"].upper(), 
             "Quan hệ": f"-[ {e['relation']} ]->", 
-            "Đến": e["target"].upper(), 
+            "Đến thực thể": e["target"].upper(), 
             "Trọng số": round(e["weight"], 1)
         } for e in memory.edges])
         
-        st.dataframe(df_edges, use_container_width=True, hide_index=True, height=350)
+        st.dataframe(df_edges, use_container_width=True, hide_index=True)
 
 with tab3:
     st.subheader("Trợ lý LLM / Hỏi đáp tri thức AGI")
@@ -334,17 +344,17 @@ with tab3:
         if matched_edges or matched_nodes:
             st.write("Dựa vào trí nhớ dài hạn, tôi tìm thấy:")
             for node in matched_nodes:
-                st.markdown(f"- **Thực thể:** `{node}` (Loại: `{memory.nodes[node].get('type')}`)")
+                st.markdown(f"- **Thực thể:** `{node.upper()}` (Loại: `{memory.nodes[node].get('type')}`)")
             for edge in matched_edges:
-                st.markdown(f"- `{edge['source']}` **{edge['relation']}** `{edge['target']}` *(Trọng số: {edge['weight']})*")
+                st.markdown(f"- `{edge['source'].upper()}` **{edge['relation']}** `{edge['target'].upper()}` *(Trọng số: {edge['weight']})*")
         else:
             st.warning("Chưa có dữ liệu trong trí nhớ. Bạn có thể bật **Chạy ngầm** để tôi tự động cào dữ liệu từ internet!")
 
-# ==================== 7. BACKGROUND LOOP + INTERNET CÀO TỰ ĐỘNG ====================
+# ==================== 7. BACKGROUND LOOP ====================
 if st.session_state.background_running:
     result = curiosity.auto_explore_once()
     if result.get("success"):
-        msg = f"[{result.get('action')}] Mục tiêu '{result.get('target')}' (Score: {result.get('curiosity_score')}) → {result.get('detail','')}"
+        msg = f"[{result.get('action')}] Mục tiêu '{result.get('target').upper()}' (Score: {result.get('curiosity_score')}) → {result.get('detail','')}"
         st.toast(f"🌐 {msg}")
         st.session_state.explore_log.append(msg)
     time.sleep(5)
