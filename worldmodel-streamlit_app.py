@@ -4,7 +4,7 @@ import os
 import time
 import re
 import pandas as pd
-import google.generativeai as genai
+import urllib.request
 
 st.set_page_config(page_title="AGI World Model Dashboard", page_icon="🧠", layout="wide")
 
@@ -77,7 +77,7 @@ class Extractor:
         self.mem.save()
         return count
 
-# ==================== AI WORLD MODEL ====================
+# ==================== AI WORLD MODEL (HTTP REST API) ====================
 class AGIWorldModel:
     def __init__(self, memory_system):
         self.memory = memory_system
@@ -95,14 +95,14 @@ class AGIWorldModel:
             }
         
         try:
-            genai.configure(api_key=api_key)
-            model = genai.GenerativeModel('gemini-1.5-flash')
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+            headers = {'Content-Type': 'application/json'}
             
             prompt = f"""
             Bạn là World Model (Mô hình thế giới vật lý và nhận thức nhân quả) của hệ thống AGI.
             Hãy phân tích tình huống/thực thể sau đây: "{node_id}"
             
-            Trả về kết quả phân tích dưới dạng JSON chuẩn (không kèm markdown thừa) gồm đúng các trường sau:
+            Trả về kết quả phân tích dưới dạng JSON chuẩn (không kèm markdown thừa như ```json) gồm đúng các trường sau:
             {{
               "domain": "Physics & Dynamics hoặc Cognitive Science",
               "detected_action": "tên hành động cốt lõi bằng tiếng Anh",
@@ -113,8 +113,18 @@ class AGIWorldModel:
             }}
             """
             
-            response = model.generate_content(prompt)
-            clean_text = response.text.strip()
+            payload = {
+                "contents": [{
+                    "parts": [{"text": prompt}]
+                }]
+            }
+            
+            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+            with urllib.request.urlopen(req) as response:
+                res_json = json.loads(response.read().decode('utf-8'))
+                raw_text = res_json['candidates'][0]['content']['parts'][0]['text']
+            
+            clean_text = raw_text.strip()
             clean_text = re.sub(r"^```json\s*", "", clean_text)
             clean_text = re.sub(r"\s*```$", "", clean_text)
             
@@ -151,7 +161,7 @@ st.title("🧠 AGI World Model Dashboard")
 st.caption("Hệ thống Mô hình Thế giới vật lý, dự đoán nhân quả và phản ứng thích ứng liên tục.")
 
 st.sidebar.header("⚙️ Cấu hình hệ thống")
-gemini_api_key = st.sidebar.text_input("🔑 Nhập Gemini API Key (AIza...):", type="password", help="Lấy key từ https://aistudio.google.com/")
+gemini_api_key = st.sidebar.text_input("🔑 Nhập Gemini API Key (AIza...):", type="password", help="Lấy key từ [https://aistudio.google.com/](https://aistudio.google.com/)")
 
 tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu Sự kiện", "📊 Đồ thị Tri thức", "🌍 AI World Model & Phản ứng"])
 
@@ -196,7 +206,7 @@ with tab3:
                 
                 st.markdown("### 📝 Kết quả Phân tích & Phản ứng từ World Model:")
                 
-                # Gộp toàn bộ câu thành MỘT ĐOẠN VĂN LIỀN MẠCH DUY NHẤT, không bị chia tách dòng hay ngắt đoạn
+                # Gộp toàn bộ thành MỘT ĐOẠN VĂN LIỀN MẠCH DUY NHẤT, tuyệt đối không ngắt dòng
                 unified_text = (
                     f"Phân tích sự kiện '{pred.get('target', '').upper()}' thuộc lĩnh vực {pred.get('domain')}, "
                     f"với hành động cốt lõi là {pred.get('detected_action')} ({pred.get('action_description')}). "
