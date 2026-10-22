@@ -4,158 +4,136 @@ import os
 import time
 import re
 import pandas as pd
-import random
-import requests
-from datetime import datetime
 from google import genai
 
-st.set_page_config(page_title="AGI Cognitive Dashboard", page_icon="🧠", layout="wide")
+st.set_page_config(page_title="AGI World Model Dashboard", page_icon="🧠", layout="wide")
 
-# ==================== 1. BỘ NHỚ DÀI HẠN ====================
-class AGIKnowledgeMemory:
-    def __init__(self, filepath="agi_long_term_memory.json"):
-        self.filepath = filepath
+GEMINI_API_KEY = "AQ.Ab8RN6IY4bKTJOFO19rplBOFNLTFpYhAW6OYyia9H1_6jFjzHg"
+
+# ==================== BỘ NHỚ TRI THỨC ====================
+class AGIMemory:
+    def __init__(self, path="agi_world_memory.json"):
+        self.path = path
         self.nodes = {}
         self.edges = []
-        self.load_from_file()
+        self.load()
 
-    def add_entity(self, entity_id: str, entity_type: str, properties=None):
-        entity_id = entity_id.strip().lower()
-        if entity_id not in self.nodes:
-            self.nodes[entity_id] = {
-                "type": entity_type,
-                "properties": properties or {},
-                "created_at": time.time(),
-                "updated_at": time.time()
-            }
-        else:
-            if properties:
-                self.nodes[entity_id]["properties"].update(properties)
-            self.nodes[entity_id]["updated_at"] = time.time()
+    def add_entity(self, eid, etype="Thực thể", props=None):
+        eid = str(eid).strip().lower()
+        if not eid:
+            return
+        if eid not in self.nodes:
+            self.nodes[eid] = {"type": etype, "properties": props or {}, "created": time.time()}
+        elif props:
+            self.nodes[eid].setdefault("properties", {}).update(props)
 
-    def add_relation(self, source: str, target: str, relation: str, weight: float = 1.0):
-        source = source.strip().lower()
-        target = target.strip().lower()
-        relation = relation.strip().lower()
-        if source not in self.nodes:
-            self.add_entity(source, "Unknown")
-        if target not in self.nodes:
-            self.add_entity(target, "Unknown")
-        for edge in self.edges:
-            if edge["source"] == source and edge["target"] == target and edge["relation"] == relation:
-                edge["weight"] = min(5.0, edge["weight"] + 0.5)
+    def add_relation(self, src, tgt, rel, weight=1.0):
+        src = str(src).strip().lower()
+        tgt = str(tgt).strip().lower()
+        rel = str(rel).strip().lower()
+        if not src or not tgt:
+            return
+        self.add_entity(src)
+        self.add_entity(tgt)
+        for e in self.edges:
+            if e["source"] == src and e["target"] == tgt and e["relation"] == rel:
+                e["weight"] = min(5.0, e.get("weight", 1) + 0.3)
                 return
-        self.edges.append({
-            "source": source, "target": target, "relation": relation,
-            "weight": weight, "created_at": time.time()
-        })
+        self.edges.append({"source": src, "target": tgt, "relation": rel, "weight": weight})
 
-    def save_to_file(self):
-        data = {
-            "nodes": self.nodes, "edges": self.edges,
-            "meta": {"total_nodes": len(self.nodes), "total_edges": len(self.edges), "saved_at": time.time()}
-        }
-        with open(self.filepath, "w", encoding="utf-8") as f:
-            json.dump(data, f, indent=2, ensure_ascii=False)
+    def save(self):
+        try:
+            with open(self.path, "w", encoding="utf-8") as f:
+                json.dump({"nodes": self.nodes, "edges": self.edges}, f, ensure_ascii=False, indent=2)
+        except Exception:
+            pass
 
-    def load_from_file(self):
-        if os.path.exists(self.filepath):
-            with open(self.filepath, "r", encoding="utf-8") as f:
-                data = json.load(f)
-                self.nodes = data.get("nodes", {})
-                self.edges = data.get("edges", [])
+    def load(self):
+        if os.path.exists(self.path):
+            try:
+                with open(self.path, "r", encoding="utf-8") as f:
+                    d = json.load(f)
+                    self.nodes = d.get("nodes", {})
+                    self.edges = d.get("edges", [])
+            except Exception:
+                self.nodes = {}
+                self.edges = []
 
-# ==================== 2. TRÍCH XUẤT TRI THỨC ====================
-class AGIKnowledgeExtractor:
-    def __init__(self, memory_system):
-        self.memory = memory_system
-        self.relation_patterns = [
-            (r"(.+?)\s+(là|bao gồm|được phân loại là|thuộc về)\s+(.+)", "là / thuộc về"),
-            (r"(.+?)\s+(sử dụng|áp dụng|dùng|vận hành bằng)\s+(.+)", "sử dụng"),
-            (r"(.+?)\s+(phát triển|tạo ra|nghiên cứu|mô phỏng)\s+(.+)", "tạo ra / mô phỏng"),
-            (r"(.+?)\s+(yêu cầu|cần có|phụ thuộc vào)\s+(.+)", "yêu cầu"),
-            (r"(.+?)\s+(kết nối với|liên kết với|tương tác với)\s+(.+)", "kết nối với"),
-        ]
+# ==================== TRÍCH XUẤT SỰ KIỆN VẬT LÝ ====================
+class Extractor:
+    def __init__(self, mem):
+        self.mem = mem
 
-    def extract_and_ingest(self, text: str):
-        sentences = [s.strip() for s in re.split(r'[.\n;]', text) if s.strip()]
+    def run(self, text):
         count = 0
-        for sentence in sentences:
-            matched = False
-            for pattern, rel in self.relation_patterns:
-                match = re.search(pattern, sentence, re.IGNORECASE)
-                if match:
-                    sub = re.sub(r'^(một|các|những|hệ thống|mô hình)\s+', '', match.group(1).strip(), flags=re.IGNORECASE)
-                    obj = re.sub(r'^(một|các|những|hệ thống|mô hình)\s+', '', match.group(3).strip(), flags=re.IGNORECASE)
-                    if len(sub) >= 2 and len(obj) >= 2:
-                        self.memory.add_entity(sub, "Thực thể chính")
-                        self.memory.add_entity(obj, "Thực thể chính")
-                        self.memory.add_relation(sub, obj, rel)
-                        count += 1
-                        matched = True
-                        break
-            if not matched:
-                clean_concept = sentence.strip()
-                if len(clean_concept) >= 2:
-                    self.memory.add_entity(clean_concept, "Khái niệm thô")
-                    count += 1
-        self.memory.save_to_file()
+        for sent in [s.strip() for s in re.split(r'[.\n;]', text) if s.strip()]:
+            m = re.search(r"(.+?)\s+(là|sử dụng|dùng|tạo ra|mô phỏng|băng qua|bắt được|đang)\s+(.+)", sent, re.I)
+            if m and len(m.group(1).strip()) > 1 and len(m.group(3).strip()) > 1:
+                self.mem.add_entity(m.group(1), "Sự kiện/Thực thể")
+                self.mem.add_entity(m.group(3), "Sự kiện/Thực thể")
+                self.mem.add_relation(m.group(1), m.group(3), m.group(2))
+                count += 1
+            elif len(sent) > 2:
+                self.mem.add_entity(sent, "Tình huống vật lý")
+                count += 1
+        self.mem.save()
         return count
 
-# ==================== 3. WORLD MODEL & PHẢN ỨNG TỰ ĐỘNG ====================
+# ==================== BỘ ĐIỀU KHIỂN PHẢN ỨNG TỰ ĐỘNG ====================
 class AGIReactionController:
-    def evaluate_and_react(self, risk_score: float, domain: str) -> dict:
+    def evaluate_and_react(self, risk_score: float) -> dict:
         if risk_score >= 0.75:
             return {
                 "level": "CRITICAL EMERGENCY",
                 "color": "red",
                 "action": "EMERGENCY_INTERVENTION",
-                "policy": "Kich hoat phanh khan cap, dao huong ne tranh hoac vo hieu hoa tac nhan gay nguy hiem."
+                "policy": "Kích hoạt phanh khẩn cấp, đảo hướng né tránh hoặc vô hiệu hóa tác nhân gây nguy hiểm ngay lập tức."
             }
         elif risk_score >= 0.40:
             return {
                 "level": "WARNING & CAUTION",
                 "color": "orange",
                 "action": "SLOW_DOWN_AND_MONITOR",
-                "policy": "Giam toc do van hanh, tang cuong quan sat cam bien va chuan bi phuong an du phong."
+                "policy": "Giảm tốc độ vận hành, tăng cường quan sát cảm biến và chuẩn bị phương án dự phòng."
             }
         else:
             return {
                 "level": "SAFE OPERATION",
                 "color": "green",
                 "action": "PROCEED_NORMALLY",
-                "policy": "Tiep tuc quy trinh thuc thi chuan, duy tri nhip do on dinh."
+                "policy": "Tiếp tục quy trình thực thi chuẩn, duy trì nhịp độ ổn định."
             }
 
+# ==================== AI WORLD MODEL ====================
 class AGIWorldModel:
     def __init__(self, memory_system):
         self.memory = memory_system
         self.reaction_controller = AGIReactionController()
 
-    def simulate_with_ai(self, node_id: str, api_key: str) -> dict:
-        if not api_key:
+    def simulate_with_ai(self, node_id: str) -> dict:
+        if not GEMINI_API_KEY:
             return {
                 "domain": "Fallback Rule",
                 "detected_action": "manual_input_required",
-                "action_description": "Chua nhap Gemini API Key",
-                "predicted_outcome": "Vui long nhap API Key o sidebar de AI phan tich thuc te.",
+                "action_description": "Chưa có Gemini API Key",
+                "predicted_outcome": "Vui lòng cấu hình API Key.",
                 "estimated_risk": 0.0,
                 "simulated_success": False
             }
         
         try:
-            client = genai.Client(api_key=api_key)
+            client = genai.Client(api_key=GEMINI_API_KEY)
             prompt = f"""
-            Ban la World Model (Mo hinh the gioi vat ly va nhan thuc) cua he thong AGI.
-            Hay phan tich tinh huong sau: "{node_id}"
+            Bạn là World Model (Mô hình thế giới vật lý và nhận thức nhân quả) của hệ thống AGI.
+            Hãy phân tích tình huống/thực thể sau đây: "{node_id}"
             
-            Tra ve ket qua phan tich dung cau truc JSON gom cac truong sau (khong kem markdown thua):
+            Trả về kết quả phân tích dưới dạng JSON chuẩn (không kèm markdown thừa) gồm đúng các trường sau:
             {{
-              "domain": "Physics & Dynamics hoac Cognitive Science",
-              "detected_action": "ten hanh dong cot loi bang tieng Anh",
-              "action_description": "mo ta ngan gon hanh dong bang tieng Viet",
-              "predicted_outcome": "du doan chi tiet he qua vat ly, van toc, quy dao hoac nhan qua bang tieng Viet",
-              "estimated_risk": so thuc tu 0.0 den 1.0 danh gia muc do rui ro
+              "domain": "Physics & Dynamics hoặc Cognitive Science",
+              "detected_action": "tên hành động cốt lõi bằng tiếng Anh",
+              "action_description": "mô tả ngắn gọn hành động bằng tiếng Việt",
+              "predicted_outcome": "dự đoán chi tiết hệ quả vật lý, vận tốc, quỹ đạo hoặc quy luật nhân quả của tình huống trên bằng tiếng Việt",
+              "estimated_risk": số thực từ 0.0 đến 1.0 đánh giá mức độ rủi ro va chạm hoặc nguy hiểm
             }}
             """
             
@@ -173,7 +151,7 @@ class AGIWorldModel:
             data["simulated_success"] = True
             
             risk = float(data.get("estimated_risk", 0.0))
-            data["reaction"] = self.reaction_controller.evaluate_and_react(risk, data.get("domain", ""))
+            data["reaction"] = self.reaction_controller.evaluate_and_react(risk)
             
             return data
             
@@ -182,148 +160,83 @@ class AGIWorldModel:
                 "target": node_id,
                 "domain": "AI Error",
                 "detected_action": "error",
-                "action_description": "Loi ket noi hoac xu ly tu Gemini API",
-                "predicted_outcome": f"Chi tiet loi: {str(e)}",
+                "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
+                "predicted_outcome": f"Chi tiết lỗi: {str(e)}",
                 "estimated_risk": 1.0,
                 "simulated_success": False,
-                "reaction": {"level": "SYSTEM ERROR", "color": "red", "action": "HALT", "policy": "Dung khan cap do loi he thong."}
+                "reaction": {"level": "SYSTEM ERROR", "color": "red", "action": "HALT", "policy": "Dừng khẩn cấp do lỗi hệ thống."}
             }
 
-# ==================== 4. ĐỘNG CƠ TÒ MÒ ====================
-class AdvancedCuriosityEngine:
-    def __init__(self, memory_system, world_model: AGIWorldModel):
-        self.memory = memory_system
-        self.world_model = world_model
-        self.active_goals = []
+# ==================== KHỞI TẠO STATE ====================
+if "mem" not in st.session_state:
+    st.session_state.mem = AGIMemory()
 
-    def scan_and_rank(self, top_k=50):
-        results = []
-        for node_id in self.memory.nodes:
-            results.append({
-                "entity": node_id,
-                "score": 5.0,
-                "type": self.memory.nodes[node_id].get("type", "Unknown")
-            })
-        return results[:top_k]
+if "world_model" not in st.session_state:
+    st.session_state.world_model = AGIWorldModel(st.session_state.mem)
 
-    def update_long_term_goals(self):
-        ranked = self.scan_and_rank(top_k=5)
-        self.active_goals = [r["entity"] for r in ranked]
+mem = st.session_state.mem
+extractor = Extractor(mem)
+world_model = st.session_state.world_model
 
-    def auto_explore_once(self) -> dict:
-        self.update_long_term_goals()
-        if not self.active_goals:
-            return {"success": False, "reason": "Khong co muc tieu"}
-        target = self.active_goals[0]
-        return {"success": True, "target": target, "action": "ai_world_model_active"}
+# ==================== GIAO DIỆN CHÍNH ====================
+st.title("🧠 AGI World Model Dashboard")
+st.caption("Hệ thống Mô hình Thế giới vật lý, dự đoán nhân quả và tự động phản ứng thời gian thực.")
 
-# ==================== 5. KHỞI TẠO TRẠNG THÁI ====================
-if "agi_memory" not in st.session_state:
-    st.session_state.agi_memory = AGIKnowledgeMemory()
-if "background_running" not in st.session_state:
-    st.session_state.background_running = False
-
-if "world_model_ai_v9" not in st.session_state:
-    st.session_state.world_model_ai_v9 = AGIWorldModel(st.session_state.agi_memory)
-
-if "curiosity_engine_ai_v9" not in st.session_state:
-    st.session_state.curiosity_engine_ai_v9 = AdvancedCuriosityEngine(st.session_state.agi_memory, st.session_state.world_model_ai_v9)
-
-if "explore_log" not in st.session_state:
-    st.session_state.explore_log = []
-
-memory = st.session_state.agi_memory
-extractor = AGIKnowledgeExtractor(memory)
-world_model = st.session_state.world_model_ai_v9
-curiosity = st.session_state.curiosity_engine_ai_v9
-
-# ==================== 6. GIAO DIỆN DASHBOARD ====================
-st.title("🧠 AGI Cognitive Core Dashboard")
-st.caption("Kien truc dinh cao: Dong luc noi tai + World Model + Co che Tu dong Phan ung & Can thiep")
-
-st.sidebar.header("Cau hinh AI & He thong")
-gemini_api_key = st.sidebar.text_input("Nhap Gemini API Key:", type="password")
-
-if st.sidebar.button("Dung chay ngầm" if st.session_state.background_running else "Bat chay ngầm", use_container_width=True):
-    st.session_state.background_running = not st.session_state.background_running
-    st.rerun()
-
-tab1, tab2, tab3, tab4 = st.tabs(["Nhap lieu & File", "Do thi Tri thuc", "AI World Model & Phan ung", "Tro ly LLM"])
+tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu Sự kiện", "📊 Đồ thị Tri thức", "🌍 AI World Model & Phản ứng"])
 
 with tab1:
-    st.subheader("Nap van ban hoac Tep tin Local")
-    raw = st.text_area("Nhap su viec/thuc the can phan tich:", "Con meo dang bang qua đường nhưng nhieu xe co đang di chuyen rat nhanh.", height=100)
-    if st.button("Trich xuat vao Do thi", use_container_width=True):
-        n = extractor.extract_and_ingest(raw)
-        st.success(f"Da nap {n} thuc the vao bo nho tri thuc!")
-        st.rerun()
+    st.subheader("Nạp kịch bản / Tình huống vật lý")
+    raw_text = st.text_area("Nhập tình huống mô phỏng (VD: con mèo đang băng qua đường nhưng nhiều xe cộ đang di chuyển rất nhanh):", height=100)
+    if st.button("🚀 Trích xuất vào Đồ thị Tri thức", use_container_width=True):
+        if raw_text and raw_text.strip():
+            n = extractor.run(raw_text)
+            st.success(f"Đã trích xuất và nạp thành công {n} thực thể/sự kiện vào bộ nhớ!")
+            st.rerun()
 
 with tab2:
-    st.subheader("Bang Do thi Tri thuc")
+    st.subheader("Bảng Đồ thị Tri thức (Nodes & Edges)")
     c1, c2 = st.columns(2)
-    c1.metric("Tong Thuc the (Nodes)", len(memory.nodes))
-    c2.metric("Tong Moi quan he (Edges)", len(memory.edges))
+    c1.metric("Tổng Thực thể (Nodes)", len(mem.nodes))
+    c2.metric("Tổng Mối quan hệ (Edges)", len(mem.edges))
     
-    ranked_nodes = curiosity.scan_and_rank(top_k=50)
-    if ranked_nodes:
+    if mem.nodes:
         df_nodes = pd.DataFrame([{
-            "Thuc the": item["entity"].upper(),
-            "Phan loai": item["type"],
-        } for item in ranked_nodes])
+            "Thực thể": k.upper(),
+            "Phân loại": v.get("type", "Unknown")
+        } for k, v in mem.nodes.items()])
         st.dataframe(df_nodes, use_container_width=True, hide_index=True)
+    else:
+        st.info("Chưa có thực thể nào trong bộ nhớ. Hãy nạp ở tab 'Nhập liệu Sự kiện'.")
 
 with tab3:
-    st.subheader("AI World Model: Mo phong & Phan ung Tu dong")
-    st.info("He thong phan tich rui ro vat ly va tu dong dua ra chinh sach can thiep thoi gian thuc.")
+    st.subheader("🌍 AI World Model: Mô phỏng Vật lý & Phản ứng Tự động")
+    st.info("Hệ thống sẽ gọi Gemini AI để phân tích động lực học, tính toán rủi ro và kích hoạt chính sách phản ứng khẩn cấp.")
     
-    node_keys = list(memory.nodes.keys())
+    node_keys = list(mem.nodes.keys())
     if node_keys:
-        selected_node = st.selectbox("Chon thuc the để mo phong & phan ung:", node_keys)
+        selected_node = st.selectbox("Chọn sự kiện / thực thể để mô phỏng thế giới:", node_keys)
         
-        if st.button("Chay Mo Phong & Kich Hoat Phan Ung AGI", use_container_width=True):
-            if not gemini_api_key:
-                st.error("Vui long nhap Gemini API Key o thanh sidebar ben trai!")
+        if st.button("🔮 Chạy Mô Phỏng Vật Lý & Kích Hoạt Phản Ứng", use_container_width=True):
+            with st.spinner("🤖 Gemini AI đang mô phỏng không gian, vận tốc và quy luật nhân quả..."):
+                pred = world_model.simulate_with_ai(selected_node)
+            
+            st.markdown("### 📝 Kết quả Phân tích từ World Model:")
+            st.markdown(f"- **Thực thể / Sự kiện:** `{pred.get('target', '').upper()}`")
+            st.markdown(f"- **Lĩnh vực nhận diện:** `{pred.get('domain')}`")
+            st.markdown(f"- **Hành động cốt lõi:** `{pred.get('detected_action')}` *({pred.get('action_description')})*")
+            st.markdown(f"- **Hệ quả vật lý & Quỹ đạo dự kiến:** **{pred.get('predicted_outcome')}**")
+            st.markdown(f"- **Chỉ số rủi ro ước tính:** `{pred.get('estimated_risk')}`")
+            
+            reaction = pred.get('reaction', {})
+            level = reaction.get('level', 'UNKNOWN')
+            policy = reaction.get('policy', '')
+            action = reaction.get('action', '')
+            
+            if reaction.get('color') == 'red':
+                st.error(f"🚨 **PHẢN ỨNG KHẨN CẤP [{level}]**: Lệnh hành động `{action}` — {policy}")
+            elif reaction.get('color') == 'orange':
+                st.warning(f"⚠️ **CẢNH BÁO GIÁM SÁT [{level}]**: Lệnh hành động `{action}` — {policy}")
             else:
-                with st.spinner("Gemini AI đang mo phong the gioi va tinh toan phan ung khan cap..."):
-                    pred = world_model.simulate_with_ai(selected_node, gemini_api_key)
-                
-                st.markdown("### Ket qua Phan tich & Phan ung Tu dong tu AGI:")
-                st.markdown(f"- **Thuc the phan tich:** `{pred.get('target', '').upper()}`")
-                st.markdown(f"- **Linh vực nhận diện:** `{pred.get('domain')}`")
-                st.markdown(f"- **Hanh dong cot loi:** `{pred.get('detected_action')}` *({pred.get('action_description')})*")
-                st.markdown(f"- **He qua du kien & Quy dao:** **{pred.get('predicted_outcome')}**")
-                st.markdown(f"- **Chi so rui ro uoc tinh:** `{pred.get('estimated_risk')}`")
-                
-                reaction = pred.get('reaction', {})
-                level = reaction.get('level', 'UNKNOWN')
-                policy = reaction.get('policy', '')
-                action = reaction.get('action', '')
-                
-                if reaction.get('color') == 'red':
-                    st.error(f"PHAN UNG KHAN CAP [{level}]: Lệnh hành động `{action}` — {policy}")
-                elif reaction.get('color') == 'orange':
-                    st.warning(f"CANH BAO GIAM SAT [{level}]: Lệnh hành động `{action}` — {policy}")
-                else:
-                    st.success(f"VAN HANH AN TOAN [{level}]: Lệnh hành động `{action}` — {policy}")
+                st.success(f"✅ **VẬN HÀNH AN TOÀN [{level}]**: Lệnh hành động `{action}` — {policy}")
     else:
-        st.warning("Chua co thuc the trong bo nho. Hay sang tab 'Nhap lieu' để them su việc.")
-
-with tab4:
-    st.subheader("Tro ly LLM / Hoi đáp tri thuc AGI")
-    user_query = st.text_input("Dat cau hoi cho AGI:")
-    if user_query:
-        query_lower = user_query.lower()
-        matched_nodes = [n for n in memory.nodes if query_lower in n]
-        if matched_nodes:
-            for node in matched_nodes:
-                st.markdown(f"- Phát hiện thực thể: `{node.upper()}` trong bộ nhớ.")
-        else:
-            st.warning("Khong tim thay trong bo nho dai han.")
-
-# ==================== 7. VÒNG LẶP NGẦM ====================
-if st.session_state.background_running:
-    result = curiosity.auto_explore_once()
-    if result.get("success"):
-        st.toast(f"Vòng lặp ngầm đang quét mục tiêu: {result.get('target').upper()}")
-    time.sleep(5)
-    st.rerun()
+        st.warning("Chưa có thực thể trong bộ nhớ. Hãy sang tab 'Nhập liệu Sự kiện' để thêm tình huống mô phỏng.")
