@@ -51,7 +51,6 @@ class Extractor:
 
     def run(self, text):
         count = 0
-        # Cắt theo dấu xuống dòng hoặc dấu chấm câu lớn, giữ nguyên toàn bộ nội dung câu
         lines = [line.strip() for line in re.split(r'[\n;]', text) if line.strip()]
         for line in lines:
             if len(line) >= 2:
@@ -60,7 +59,7 @@ class Extractor:
         self.mem.save()
         return count
 
-# ==================== AI WORLD MODEL (HTTP REST API + AUTO RETRY) ====================
+# ==================== AI WORLD MODEL (HTTP REST API + GEMINI-1.5-FLASH) ====================
 class AGIWorldModel:
     def __init__(self, memory_system):
         self.memory = memory_system
@@ -77,7 +76,8 @@ class AGIWorldModel:
                 "simulated_success": False
             }
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
+        # Sử dụng model gemini-1.5-flash chuẩn xác để tránh lỗi 404
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         
         prompt = f"""
@@ -128,9 +128,9 @@ class AGIWorldModel:
                         "domain": "AI Error",
                         "detected_action": "error",
                         "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
-                        "predicted_outcome": f"Chi tiết lỗi HTTP {e.code}: Máy chủ đang quá tải tạm thời, vui lòng thử lại sau.",
+                        "predicted_outcome": f"Chi tiết lỗi HTTP {e.code}: Máy chủ đang quá tải hoặc yêu cầu không hợp lệ.",
                         "estimated_risk": 1.0,
-                        "adaptive_reaction": "Hệ thống ghi nhận sự cố quá tải và duy trì vận hành an toàn.",
+                        "adaptive_reaction": "Hệ thống ghi nhận sự cố và duy trì vận hành an toàn.",
                         "simulated_success": False
                     }
             except Exception as e:
