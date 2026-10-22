@@ -95,7 +95,8 @@ class AGIWorldModel:
             }
         
         try:
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+            # Đã cập nhật đúng chuẩn model gemini-3.8-flash mới nhất
+            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
             headers = {'Content-Type': 'application/json'}
             
             prompt = f"""
@@ -167,7 +168,7 @@ tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu Sự kiện", "📊 Đồ thị 
 
 with tab1:
     st.subheader("Nạp kịch bản / Tình huống vật lý")
-    raw_text = st.text_area("Nhập tình huống mô phỏng (VD: rơi từ độ cao 50 mét):", height=100)
+    raw_text = st.text_area("Nhập tình huống mô phỏng (VD: băng qua đường thì gặp 1 chiếc xe f1 đang chạy tới):", height=100)
     if st.button("🚀 Trích xuất vào Đồ thị Tri thức", use_container_width=True):
         if raw_text and raw_text.strip():
             n = extractor.run(raw_text)
