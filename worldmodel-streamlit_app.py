@@ -17,28 +17,14 @@ class AGIMemory:
         self.edges = []
         self.load()
 
-    def add_entity(self, eid, etype="Thực thể", props=None):
-        eid = str(eid).strip().lower()
+    def add_entity(self, eid, etype="Tình huống vật lý", props=None):
+        eid = str(eid).strip()
         if not eid:
             return
         if eid not in self.nodes:
             self.nodes[eid] = {"type": etype, "properties": props or {}, "created": time.time()}
         elif props:
             self.nodes[eid].setdefault("properties", {}).update(props)
-
-    def add_relation(self, src, tgt, rel, weight=1.0):
-        src = str(src).strip().lower()
-        tgt = str(tgt).strip().lower()
-        rel = str(rel).strip().lower()
-        if not src or not tgt:
-            return
-        self.add_entity(src)
-        self.add_entity(tgt)
-        for e in self.edges:
-            if e["source"] == src and e["target"] == tgt and e["relation"] == rel:
-                e["weight"] = min(5.0, e.get("weight", 1) + 0.3)
-                return
-        self.edges.append({"source": src, "target": tgt, "relation": rel, "weight": weight})
 
     def save(self):
         try:
@@ -58,22 +44,18 @@ class AGIMemory:
                 self.nodes = {}
                 self.edges = []
 
-# ==================== TRÍCH XUẤT SỰ KIỆN VẬT LÝ ====================
+# ==================== TRÍCH XUẤT NGUYÊN VẸN KỊCH BẢN (KHÔNG CẮT CÂU) ====================
 class Extractor:
     def __init__(self, mem):
         self.mem = mem
 
     def run(self, text):
         count = 0
-        for sent in [s.strip() for s in re.split(r'[.\n;]', text) if s.strip()]:
-            m = re.search(r"(.+?)\s+(là|sử dụng|dùng|tạo ra|mô phỏng|băng qua|bắt được|đang|rơi từ)\s+(.+)", sent, re.I)
-            if m and len(m.group(1).strip()) > 1 and len(m.group(3).strip()) > 1:
-                self.mem.add_entity(m.group(1), "Sự kiện/Thực thể")
-                self.mem.add_entity(m.group(3), "Sự kiện/Thực thể")
-                self.mem.add_relation(m.group(1), m.group(3), m.group(2))
-                count += 1
-            elif len(sent) > 2:
-                self.mem.add_entity(sent, "Tình huống vật lý")
+        # Cắt theo dấu xuống dòng hoặc dấu chấm câu lớn, giữ nguyên toàn bộ nội dung câu
+        lines = [line.strip() for line in re.split(r'[\n;]', text) if line.strip()]
+        for line in lines:
+            if len(line) >= 2:
+                self.mem.add_entity(line, "Tình huống vật lý nguyên vẹn")
                 count += 1
         self.mem.save()
         return count
@@ -95,12 +77,12 @@ class AGIWorldModel:
                 "simulated_success": False
             }
         
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         
         prompt = f"""
         Bạn là World Model (Mô hình thế giới vật lý và nhận thức nhân quả) của hệ thống AGI.
-        Hãy phân tích tình huống/thực thể sau đây: "{node_id}"
+        Hãy phân tích toàn bộ tình huống/thực thể nguyên vẹn sau đây: "{node_id}"
         
         Trả về kết quả phân tích dưới dạng JSON chuẩn (không kèm markdown thừa như ```json) gồm đúng các trường sau:
         {{
@@ -119,7 +101,6 @@ class AGIWorldModel:
             }]
         }
         
-        # Cơ chế tự động thử lại (Retry) khi gặp lỗi quá tải 503
         max_retries = 3
         for attempt in range(max_retries):
             try:
@@ -139,7 +120,7 @@ class AGIWorldModel:
                 
             except urllib.error.HTTPError as e:
                 if e.code == 503 and attempt < max_retries - 1:
-                    time.sleep(2) # Chờ 2 giây rồi thử lại
+                    time.sleep(2)
                     continue
                 else:
                     return {
@@ -147,7 +128,7 @@ class AGIWorldModel:
                         "domain": "AI Error",
                         "detected_action": "error",
                         "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
-                        "predicted_outcome": f"Chi tiết lỗi HTTP {e.code}: Máy chủ đang bận, vui lòng thử lại sau.",
+                        "predicted_outcome": f"Chi tiết lỗi HTTP {e.code}: Máy chủ đang quá tải tạm thời, vui lòng thử lại sau.",
                         "estimated_risk": 1.0,
                         "adaptive_reaction": "Hệ thống ghi nhận sự cố quá tải và duy trì vận hành an toàn.",
                         "simulated_success": False
@@ -186,23 +167,21 @@ tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu Sự kiện", "📊 Đồ thị 
 
 with tab1:
     st.subheader("Nạp kịch bản / Tình huống vật lý")
-    raw_text = st.text_area("Nhập tình huống mô phỏng (VD: băng qua đường thì gặp 1 chiếc xe f1 đang chạy tới):", height=100)
-    if st.button("🚀 Trích xuất vào Đồ thị Tri thức", use_container_width=True):
+    raw_text = st.text_area("Nhập tình huống mô phỏng (Mỗi tình huống nguyên vẹn nằm trên 1 dòng):", height=120)
+    if st.button("🚀 Trích xuất nguyên vẹn vào Bộ nhớ", use_container_width=True):
         if raw_text and raw_text.strip():
             n = extractor.run(raw_text)
-            st.success(f"Đã trích xuất và nạp thành công {n} thực thể/sự kiện vào bộ nhớ!")
+            st.success(f"Đã nạp thành công {n} kịch bản nguyên vẹn vào bộ nhớ!")
             st.rerun()
 
 with tab2:
-    st.subheader("Bảng Đồ thị Tri thức (Nodes & Edges)")
-    c1, c2 = st.columns(2)
-    c1.metric("Tổng Thực thể (Nodes)", len(mem.nodes))
-    c2.metric("Tổng Mối quan hệ (Edges)", len(mem.edges))
+    st.subheader("Bảng Đồ thị Tri thức")
+    st.metric("Tổng Tình huống / Thực thể", len(mem.nodes))
     
     if mem.nodes:
         df_nodes = pd.DataFrame([{
-            "Thực thể": k.upper(),
-            "Phân loại": v.get("type", "Unknown")
+            "Tình huống mô phỏng": k,
+            "Phân loại": v.get("type", "Tình huống vật lý")
         } for k, v in mem.nodes.items()])
         st.dataframe(df_nodes, use_container_width=True, hide_index=True)
     else:
@@ -214,7 +193,7 @@ with tab3:
     
     node_keys = list(mem.nodes.keys())
     if node_keys:
-        selected_node = st.selectbox("Chọn sự kiện / thực thể để mô phỏng thế giới:", node_keys)
+        selected_node = st.selectbox("Chọn sự kiện / kịch bản nguyên vẹn để mô phỏng:", node_keys)
         
         if st.button("🔮 Chạy Mô Phỏng Vật Lý & Nhận Phản Ứng Thích Ứng", use_container_width=True):
             if not gemini_api_key:
@@ -225,9 +204,9 @@ with tab3:
                 
                 st.markdown("### 📝 Kết quả Phân tích & Phản ứng từ World Model:")
                 
-                # Gộp toàn bộ thành MỘT ĐOẠN VĂN LIỀN MẠCH DUY NHẤT, tuyệt đối không ngắt dòng
+                # Gộp toàn bộ kết quả thành MỘT ĐOẠN VĂN LIỀN MẠCH DUY NHẤT
                 unified_text = (
-                    f"Phân tích sự kiện '{pred.get('target', '').upper()}' thuộc lĩnh vực {pred.get('domain')}, "
+                    f"Phân tích sự kiện '{pred.get('target', '')}' thuộc lĩnh vực {pred.get('domain')}, "
                     f"với hành động cốt lõi là {pred.get('detected_action')} ({pred.get('action_description')}). "
                     f"Hệ quả vật lý và quỹ đạo dự kiến: {pred.get('predicted_outcome')} "
                     f"Chỉ số rủi ro ước tính là {pred.get('estimated_risk')}. "
