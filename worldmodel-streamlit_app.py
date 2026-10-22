@@ -4,7 +4,7 @@ import os
 import time
 import re
 import pandas as pd
-from google import genai
+import google.generativeai as genai
 
 st.set_page_config(page_title="AGI World Model Dashboard", page_icon="🧠", layout="wide")
 
@@ -65,7 +65,7 @@ class Extractor:
     def run(self, text):
         count = 0
         for sent in [s.strip() for s in re.split(r'[.\n;]', text) if s.strip()]:
-            m = re.search(r"(.+?)\s+(là|sử dụng|dùng|tạo ra|mô phỏng|băng qua|bắt được|đang)\s+(.+)", sent, re.I)
+            m = re.search(r"(.+?)\s+(là|sử dụng|dùng|tạo ra|mô phỏng|băng qua|bắt được|đang|rơi từ)\s+(.+)", sent, re.I)
             if m and len(m.group(1).strip()) > 1 and len(m.group(3).strip()) > 1:
                 self.mem.add_entity(m.group(1), "Sự kiện/Thực thể")
                 self.mem.add_entity(m.group(3), "Sự kiện/Thực thể")
@@ -95,7 +95,9 @@ class AGIWorldModel:
             }
         
         try:
-            client = genai.Client(api_key=api_key)
+            genai.configure(api_key=api_key)
+            model = genai.GenerativeModel('gemini-1.5-flash')
+            
             prompt = f"""
             Bạn là World Model (Mô hình thế giới vật lý và nhận thức nhân quả) của hệ thống AGI.
             Hãy phân tích tình huống/thực thể sau đây: "{node_id}"
@@ -111,11 +113,7 @@ class AGIWorldModel:
             }}
             """
             
-            response = client.models.generate_content(
-                model='gemini-3.8-flash',
-                contents=prompt,
-            )
-            
+            response = model.generate_content(prompt)
             clean_text = response.text.strip()
             clean_text = re.sub(r"^```json\s*", "", clean_text)
             clean_text = re.sub(r"\s*```$", "", clean_text)
@@ -152,7 +150,6 @@ world_model = st.session_state.world_model
 st.title("🧠 AGI World Model Dashboard")
 st.caption("Hệ thống Mô hình Thế giới vật lý, dự đoán nhân quả và phản ứng thích ứng liên tục.")
 
-# Sidebar cấu hình API Key chuẩn
 st.sidebar.header("⚙️ Cấu hình hệ thống")
 gemini_api_key = st.sidebar.text_input("🔑 Nhập Gemini API Key (AIza...):", type="password", help="Lấy key từ https://aistudio.google.com/")
 
@@ -160,7 +157,7 @@ tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu Sự kiện", "📊 Đồ thị 
 
 with tab1:
     st.subheader("Nạp kịch bản / Tình huống vật lý")
-    raw_text = st.text_area("Nhập tình huống mô phỏng (VD: con mèo đang băng qua đường nhưng nhiều xe cộ đang di chuyển rất nhanh):", height=100)
+    raw_text = st.text_area("Nhập tình huống mô phỏng (VD: rơi từ độ cao 50 mét):", height=100)
     if st.button("🚀 Trích xuất vào Đồ thị Tri thức", use_container_width=True):
         if raw_text and raw_text.strip():
             n = extractor.run(raw_text)
@@ -199,7 +196,7 @@ with tab3:
                 
                 st.markdown("### 📝 Kết quả Phân tích & Phản ứng từ World Model:")
                 
-                # Gộp toàn bộ thành một đoạn văn bản liền mạch duy nhất trong một khối thông báo duy nhất
+                # Gộp toàn bộ câu thành MỘT ĐOẠN VĂN LIỀN MẠCH DUY NHẤT, không bị chia tách dòng hay ngắt đoạn
                 unified_text = (
                     f"Phân tích sự kiện '{pred.get('target', '').upper()}' thuộc lĩnh vực {pred.get('domain')}, "
                     f"với hành động cốt lõi là {pred.get('detected_action')} ({pred.get('action_description')}). "
