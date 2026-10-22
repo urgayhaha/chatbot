@@ -5,6 +5,7 @@ import time
 import re
 import pandas as pd
 import urllib.request
+import urllib.error
 
 st.set_page_config(page_title="AGI World Model Dashboard", page_icon="🧠", layout="wide")
 
@@ -77,7 +78,7 @@ class Extractor:
         self.mem.save()
         return count
 
-# ==================== AI WORLD MODEL (HTTP REST API) ====================
+# ==================== AI WORLD MODEL (HTTP REST API + AUTO RETRY) ====================
 class AGIWorldModel:
     def __init__(self, memory_system):
         self.memory = memory_system
@@ -94,57 +95,74 @@ class AGIWorldModel:
                 "simulated_success": False
             }
         
-        try:
-            # Đã cập nhật đúng chuẩn model gemini-3.8-flash mới nhất
-            url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
-            headers = {'Content-Type': 'application/json'}
-            
-            prompt = f"""
-            Bạn là World Model (Mô hình thế giới vật lý và nhận thức nhân quả) của hệ thống AGI.
-            Hãy phân tích tình huống/thực thể sau đây: "{node_id}"
-            
-            Trả về kết quả phân tích dưới dạng JSON chuẩn (không kèm markdown thừa như ```json) gồm đúng các trường sau:
-            {{
-              "domain": "Physics & Dynamics hoặc Cognitive Science",
-              "detected_action": "tên hành động cốt lõi bằng tiếng Anh",
-              "action_description": "mô tả ngắn gọn hành động bằng tiếng Việt",
-              "predicted_outcome": "dự đoán chi tiết hệ quả vật lý, vận tốc, quỹ đạo hoặc quy luật nhân quả của tình huống trên bằng tiếng Việt",
-              "estimated_risk": số thực từ 0.0 đến 1.0 đánh giá mức độ rủi ro va chạm hoặc nguy hiểm,
-              "adaptive_reaction": "chính sách phản ứng liên tục và hành động thích ứng của hệ thống được suy luận trực tiếp dựa trên hệ quả dự đoán"
-            }}
-            """
-            
-            payload = {
-                "contents": [{
-                    "parts": [{"text": prompt}]
-                }]
-            }
-            
-            req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
-            with urllib.request.urlopen(req) as response:
-                res_json = json.loads(response.read().decode('utf-8'))
-                raw_text = res_json['candidates'][0]['content']['parts'][0]['text']
-            
-            clean_text = raw_text.strip()
-            clean_text = re.sub(r"^```json\s*", "", clean_text)
-            clean_text = re.sub(r"\s*```$", "", clean_text)
-            
-            data = json.loads(clean_text)
-            data["target"] = node_id
-            data["simulated_success"] = True
-            return data
-            
-        except Exception as e:
-            return {
-                "target": node_id,
-                "domain": "AI Error",
-                "detected_action": "error",
-                "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
-                "predicted_outcome": f"Chi tiết lỗi: {str(e)}",
-                "estimated_risk": 1.0,
-                "adaptive_reaction": "Hệ thống ghi nhận sự cố kết nối và duy trì vận hành an toàn.",
-                "simulated_success": False
-            }
+        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-3.8-flash:generateContent?key={api_key}"
+        headers = {'Content-Type': 'application/json'}
+        
+        prompt = f"""
+        Bạn là World Model (Mô hình thế giới vật lý và nhận thức nhân quả) của hệ thống AGI.
+        Hãy phân tích tình huống/thực thể sau đây: "{node_id}"
+        
+        Trả về kết quả phân tích dưới dạng JSON chuẩn (không kèm markdown thừa như ```json) gồm đúng các trường sau:
+        {{
+          "domain": "Physics & Dynamics hoặc Cognitive Science",
+          "detected_action": "tên hành động cốt lõi bằng tiếng Anh",
+          "action_description": "mô tả ngắn gọn hành động bằng tiếng Việt",
+          "predicted_outcome": "dự đoán chi tiết hệ quả vật lý, vận tốc, quỹ đạo hoặc quy luật nhân quả của tình huống trên bằng tiếng Việt",
+          "estimated_risk": số thực từ 0.0 đến 1.0 đánh giá mức độ rủi ro va chạm hoặc nguy hiểm,
+          "adaptive_reaction": "chính sách phản ứng liên tục và hành động thích ứng của hệ thống được suy luận trực tiếp dựa trên hệ quả dự đoán"
+        }}
+        """
+        
+        payload = {
+            "contents": [{
+                "parts": [{"text": prompt}]
+            }]
+        }
+        
+        # Cơ chế tự động thử lại (Retry) khi gặp lỗi quá tải 503
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                req = urllib.request.Request(url, data=json.dumps(payload).encode('utf-8'), headers=headers, method='POST')
+                with urllib.request.urlopen(req) as response:
+                    res_json = json.loads(response.read().decode('utf-8'))
+                    raw_text = res_json['candidates'][0]['content']['parts'][0]['text']
+                
+                clean_text = raw_text.strip()
+                clean_text = re.sub(r"^```json\s*", "", clean_text)
+                clean_text = re.sub(r"\s*```$", "", clean_text)
+                
+                data = json.loads(clean_text)
+                data["target"] = node_id
+                data["simulated_success"] = True
+                return data
+                
+            except urllib.error.HTTPError as e:
+                if e.code == 503 and attempt < max_retries - 1:
+                    time.sleep(2) # Chờ 2 giây rồi thử lại
+                    continue
+                else:
+                    return {
+                        "target": node_id,
+                        "domain": "AI Error",
+                        "detected_action": "error",
+                        "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
+                        "predicted_outcome": f"Chi tiết lỗi HTTP {e.code}: Máy chủ đang bận, vui lòng thử lại sau.",
+                        "estimated_risk": 1.0,
+                        "adaptive_reaction": "Hệ thống ghi nhận sự cố quá tải và duy trì vận hành an toàn.",
+                        "simulated_success": False
+                    }
+            except Exception as e:
+                return {
+                    "target": node_id,
+                    "domain": "AI Error",
+                    "detected_action": "error",
+                    "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
+                    "predicted_outcome": f"Chi tiết lỗi: {str(e)}",
+                    "estimated_risk": 1.0,
+                    "adaptive_reaction": "Hệ thống ghi nhận sự cố kết nối và duy trì vận hành an toàn.",
+                    "simulated_success": False
+                }
 
 # ==================== KHỞI TẠO STATE ====================
 if "mem" not in st.session_state:
