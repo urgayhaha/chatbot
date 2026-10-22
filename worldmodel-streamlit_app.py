@@ -8,8 +8,6 @@ from google import genai
 
 st.set_page_config(page_title="AGI World Model Dashboard", page_icon="🧠", layout="wide")
 
-GEMINI_API_KEY = "AQ.Ab8RN6IY4bKTJOFO19rplBOFNLTFpYhAW6OYyia9H1_6jFjzHg"
-
 # ==================== BỘ NHỚ TRI THỨC ====================
 class AGIMemory:
     def __init__(self, path="agi_world_memory.json"):
@@ -79,25 +77,25 @@ class Extractor:
         self.mem.save()
         return count
 
-# ==================== AI WORLD MODEL & PHẢN HỒI THÍCH ỨNG ====================
+# ==================== AI WORLD MODEL ====================
 class AGIWorldModel:
     def __init__(self, memory_system):
         self.memory = memory_system
 
-    def simulate_with_ai(self, node_id: str) -> dict:
-        if not GEMINI_API_KEY:
+    def simulate_with_ai(self, node_id: str, api_key: str) -> dict:
+        if not api_key:
             return {
                 "domain": "Fallback Rule",
                 "detected_action": "manual_input_required",
                 "action_description": "Chưa có Gemini API Key",
-                "predicted_outcome": "Vui lòng cấu hình API Key.",
+                "predicted_outcome": "Vui lòng nhập API Key ở thanh sidebar.",
                 "estimated_risk": 0.0,
-                "adaptive_reaction": "Hệ thống tạm dừng hoạt động do chưa có khóa API xác thực.",
+                "adaptive_reaction": "Hệ thống chờ cung cấp khóa API hợp lệ.",
                 "simulated_success": False
             }
         
         try:
-            client = genai.Client(api_key=GEMINI_API_KEY)
+            client = genai.Client(api_key=api_key)
             prompt = f"""
             Bạn là World Model (Mô hình thế giới vật lý và nhận thức nhân quả) của hệ thống AGI.
             Hãy phân tích tình huống/thực thể sau đây: "{node_id}"
@@ -109,7 +107,7 @@ class AGIWorldModel:
               "action_description": "mô tả ngắn gọn hành động bằng tiếng Việt",
               "predicted_outcome": "dự đoán chi tiết hệ quả vật lý, vận tốc, quỹ đạo hoặc quy luật nhân quả của tình huống trên bằng tiếng Việt",
               "estimated_risk": số thực từ 0.0 đến 1.0 đánh giá mức độ rủi ro va chạm hoặc nguy hiểm,
-              "adaptive_reaction": "chính sách phản ứng liên tục và hành động thích ứng của hệ thống được suy luận trực tiếp dựa trên hệ quả dự đoán ở trên"
+              "adaptive_reaction": "chính sách phản ứng liên tục và hành động thích ứng của hệ thống được suy luận trực tiếp dựa trên hệ quả dự đoán"
             }}
             """
             
@@ -135,7 +133,7 @@ class AGIWorldModel:
                 "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
                 "predicted_outcome": f"Chi tiết lỗi: {str(e)}",
                 "estimated_risk": 1.0,
-                "adaptive_reaction": "Hệ thống ghi nhận sự cố kết nối và duy trì trạng thái vận hành an toàn mặc định.",
+                "adaptive_reaction": "Hệ thống ghi nhận sự cố kết nối và duy trì vận hành an toàn.",
                 "simulated_success": False
             }
 
@@ -153,6 +151,10 @@ world_model = st.session_state.world_model
 # ==================== GIAO DIỆN CHÍNH ====================
 st.title("🧠 AGI World Model Dashboard")
 st.caption("Hệ thống Mô hình Thế giới vật lý, dự đoán nhân quả và phản ứng thích ứng liên tục.")
+
+# Sidebar cấu hình API Key chuẩn
+st.sidebar.header("⚙️ Cấu hình hệ thống")
+gemini_api_key = st.sidebar.text_input("🔑 Nhập Gemini API Key (AIza...):", type="password", help="Lấy key từ https://aistudio.google.com/")
 
 tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu Sự kiện", "📊 Đồ thị Tri thức", "🌍 AI World Model & Phản ứng"])
 
@@ -189,22 +191,23 @@ with tab3:
         selected_node = st.selectbox("Chọn sự kiện / thực thể để mô phỏng thế giới:", node_keys)
         
         if st.button("🔮 Chạy Mô Phỏng Vật Lý & Nhận Phản Ứng Thích Ứng", use_container_width=True):
-            with st.spinner("🤖 Gemini AI đang mô phỏng không gian, vận tốc và tổng hợp phản ứng thích ứng..."):
-                pred = world_model.simulate_with_ai(selected_node)
-            
-            st.markdown("### 📝 Kết quả Phân tích & Phản ứng từ World Model:")
-            
-            # Gộp các câu thành một khối liền mạch, không bị chia tách lẻ tẻ
-            analysis_summary = (
-                f"**Thực thể / Sự kiện phân tích:** `{pred.get('target', '').upper()}`  \n"
-                f"**Lĩnh vực nhận diện:** `{pred.get('domain')}`  \n"
-                f"**Hành động cốt lõi:** `{pred.get('detected_action')}` (*{pred.get('action_description')}*)  \n"
-                f"**Hệ quả vật lý & Quỹ đạo dự kiến:** {pred.get('predicted_outcome')}  \n"
-                f"**Chỉ số rủi ro ước tính:** `{pred.get('estimated_risk')}`"
-            )
-            st.markdown(analysis_summary)
-            
-            # Luôn luôn hiển thị phản ứng thích ứng dựa trực tiếp vào đáp án mô phỏng
-            st.info(f"💡 **Phản ứng thích ứng của hệ thống:** {pred.get('adaptive_reaction')}")
+            if not gemini_api_key:
+                st.error("⚠️ Vui lòng nhập Gemini API Key (bắt đầu bằng AIza...) ở thanh sidebar bên trái!")
+            else:
+                with st.spinner("🤖 Gemini AI đang mô phỏng không gian, vận tốc và tổng hợp phản ứng thích ứng..."):
+                    pred = world_model.simulate_with_ai(selected_node, gemini_api_key)
+                
+                st.markdown("### 📝 Kết quả Phân tích & Phản ứng từ World Model:")
+                
+                # Gộp toàn bộ thành một đoạn văn bản liền mạch duy nhất trong một khối thông báo duy nhất
+                unified_text = (
+                    f"Phân tích sự kiện '{pred.get('target', '').upper()}' thuộc lĩnh vực {pred.get('domain')}, "
+                    f"với hành động cốt lõi là {pred.get('detected_action')} ({pred.get('action_description')}). "
+                    f"Hệ quả vật lý và quỹ đạo dự kiến: {pred.get('predicted_outcome')} "
+                    f"Chỉ số rủi ro ước tính là {pred.get('estimated_risk')}. "
+                    f"Phản ứng thích ứng của hệ thống: {pred.get('adaptive_reaction')}"
+                )
+                
+                st.success(unified_text)
     else:
         st.warning("Chưa có thực thể trong bộ nhớ. Hãy sang tab 'Nhập liệu Sự kiện' để thêm tình huống mô phỏng.")
