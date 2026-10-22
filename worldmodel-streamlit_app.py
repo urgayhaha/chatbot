@@ -79,36 +79,10 @@ class Extractor:
         self.mem.save()
         return count
 
-# ==================== BỘ ĐIỀU KHIỂN PHẢN ỨNG TỰ ĐỘNG ====================
-class AGIReactionController:
-    def evaluate_and_react(self, risk_score: float) -> dict:
-        if risk_score >= 0.75:
-            return {
-                "level": "CRITICAL EMERGENCY",
-                "color": "red",
-                "action": "EMERGENCY_INTERVENTION",
-                "policy": "Kích hoạt phanh khẩn cấp, đảo hướng né tránh hoặc vô hiệu hóa tác nhân gây nguy hiểm ngay lập tức."
-            }
-        elif risk_score >= 0.40:
-            return {
-                "level": "WARNING & CAUTION",
-                "color": "orange",
-                "action": "SLOW_DOWN_AND_MONITOR",
-                "policy": "Giảm tốc độ vận hành, tăng cường quan sát cảm biến và chuẩn bị phương án dự phòng."
-            }
-        else:
-            return {
-                "level": "SAFE OPERATION",
-                "color": "green",
-                "action": "PROCEED_NORMALLY",
-                "policy": "Tiếp tục quy trình thực thi chuẩn, duy trì nhịp độ ổn định."
-            }
-
-# ==================== AI WORLD MODEL ====================
+# ==================== AI WORLD MODEL & PHẢN HỒI THÍCH ỨNG ====================
 class AGIWorldModel:
     def __init__(self, memory_system):
         self.memory = memory_system
-        self.reaction_controller = AGIReactionController()
 
     def simulate_with_ai(self, node_id: str) -> dict:
         if not GEMINI_API_KEY:
@@ -118,6 +92,7 @@ class AGIWorldModel:
                 "action_description": "Chưa có Gemini API Key",
                 "predicted_outcome": "Vui lòng cấu hình API Key.",
                 "estimated_risk": 0.0,
+                "adaptive_reaction": "Hệ thống tạm dừng hoạt động do chưa có khóa API xác thực.",
                 "simulated_success": False
             }
         
@@ -133,7 +108,8 @@ class AGIWorldModel:
               "detected_action": "tên hành động cốt lõi bằng tiếng Anh",
               "action_description": "mô tả ngắn gọn hành động bằng tiếng Việt",
               "predicted_outcome": "dự đoán chi tiết hệ quả vật lý, vận tốc, quỹ đạo hoặc quy luật nhân quả của tình huống trên bằng tiếng Việt",
-              "estimated_risk": số thực từ 0.0 đến 1.0 đánh giá mức độ rủi ro va chạm hoặc nguy hiểm
+              "estimated_risk": số thực từ 0.0 đến 1.0 đánh giá mức độ rủi ro va chạm hoặc nguy hiểm,
+              "adaptive_reaction": "chính sách phản ứng liên tục và hành động thích ứng của hệ thống được suy luận trực tiếp dựa trên hệ quả dự đoán ở trên"
             }}
             """
             
@@ -149,10 +125,6 @@ class AGIWorldModel:
             data = json.loads(clean_text)
             data["target"] = node_id
             data["simulated_success"] = True
-            
-            risk = float(data.get("estimated_risk", 0.0))
-            data["reaction"] = self.reaction_controller.evaluate_and_react(risk)
-            
             return data
             
         except Exception as e:
@@ -163,8 +135,8 @@ class AGIWorldModel:
                 "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
                 "predicted_outcome": f"Chi tiết lỗi: {str(e)}",
                 "estimated_risk": 1.0,
-                "simulated_success": False,
-                "reaction": {"level": "SYSTEM ERROR", "color": "red", "action": "HALT", "policy": "Dừng khẩn cấp do lỗi hệ thống."}
+                "adaptive_reaction": "Hệ thống ghi nhận sự cố kết nối và duy trì trạng thái vận hành an toàn mặc định.",
+                "simulated_success": False
             }
 
 # ==================== KHỞI TẠO STATE ====================
@@ -180,7 +152,7 @@ world_model = st.session_state.world_model
 
 # ==================== GIAO DIỆN CHÍNH ====================
 st.title("🧠 AGI World Model Dashboard")
-st.caption("Hệ thống Mô hình Thế giới vật lý, dự đoán nhân quả và tự động phản ứng thời gian thực.")
+st.caption("Hệ thống Mô hình Thế giới vật lý, dự đoán nhân quả và phản ứng thích ứng liên tục.")
 
 tab1, tab2, tab3 = st.tabs(["📥 Nhập liệu Sự kiện", "📊 Đồ thị Tri thức", "🌍 AI World Model & Phản ứng"])
 
@@ -209,34 +181,30 @@ with tab2:
         st.info("Chưa có thực thể nào trong bộ nhớ. Hãy nạp ở tab 'Nhập liệu Sự kiện'.")
 
 with tab3:
-    st.subheader("🌍 AI World Model: Mô phỏng Vật lý & Phản ứng Tự động")
-    st.info("Hệ thống sẽ gọi Gemini AI để phân tích động lực học, tính toán rủi ro và kích hoạt chính sách phản ứng khẩn cấp.")
+    st.subheader("🌍 AI World Model: Mô phỏng & Phản ứng Thích ứng")
+    st.info("Hệ thống phân tích động lực học và đưa ra phản ứng liên tục dựa trực tiếp trên kết quả mô phỏng dự đoán.")
     
     node_keys = list(mem.nodes.keys())
     if node_keys:
         selected_node = st.selectbox("Chọn sự kiện / thực thể để mô phỏng thế giới:", node_keys)
         
-        if st.button("🔮 Chạy Mô Phỏng Vật Lý & Kích Hoạt Phản Ứng", use_container_width=True):
-            with st.spinner("🤖 Gemini AI đang mô phỏng không gian, vận tốc và quy luật nhân quả..."):
+        if st.button("🔮 Chạy Mô Phỏng Vật Lý & Nhận Phản Ứng Thích Ứng", use_container_width=True):
+            with st.spinner("🤖 Gemini AI đang mô phỏng không gian, vận tốc và tổng hợp phản ứng thích ứng..."):
                 pred = world_model.simulate_with_ai(selected_node)
             
-            st.markdown("### 📝 Kết quả Phân tích từ World Model:")
-            st.markdown(f"- **Thực thể / Sự kiện:** `{pred.get('target', '').upper()}`")
-            st.markdown(f"- **Lĩnh vực nhận diện:** `{pred.get('domain')}`")
-            st.markdown(f"- **Hành động cốt lõi:** `{pred.get('detected_action')}` *({pred.get('action_description')})*")
-            st.markdown(f"- **Hệ quả vật lý & Quỹ đạo dự kiến:** **{pred.get('predicted_outcome')}**")
-            st.markdown(f"- **Chỉ số rủi ro ước tính:** `{pred.get('estimated_risk')}`")
+            st.markdown("### 📝 Kết quả Phân tích & Phản ứng từ World Model:")
             
-            reaction = pred.get('reaction', {})
-            level = reaction.get('level', 'UNKNOWN')
-            policy = reaction.get('policy', '')
-            action = reaction.get('action', '')
+            # Gộp các câu thành một khối liền mạch, không bị chia tách lẻ tẻ
+            analysis_summary = (
+                f"**Thực thể / Sự kiện phân tích:** `{pred.get('target', '').upper()}`  \n"
+                f"**Lĩnh vực nhận diện:** `{pred.get('domain')}`  \n"
+                f"**Hành động cốt lõi:** `{pred.get('detected_action')}` (*{pred.get('action_description')}*)  \n"
+                f"**Hệ quả vật lý & Quỹ đạo dự kiến:** {pred.get('predicted_outcome')}  \n"
+                f"**Chỉ số rủi ro ước tính:** `{pred.get('estimated_risk')}`"
+            )
+            st.markdown(analysis_summary)
             
-            if reaction.get('color') == 'red':
-                st.error(f"🚨 **PHẢN ỨNG KHẨN CẤP [{level}]**: Lệnh hành động `{action}` — {policy}")
-            elif reaction.get('color') == 'orange':
-                st.warning(f"⚠️ **CẢNH BÁO GIÁM SÁT [{level}]**: Lệnh hành động `{action}` — {policy}")
-            else:
-                st.success(f"✅ **VẬN HÀNH AN TOÀN [{level}]**: Lệnh hành động `{action}` — {policy}")
+            # Luôn luôn hiển thị phản ứng thích ứng dựa trực tiếp vào đáp án mô phỏng
+            st.info(f"💡 **Phản ứng thích ứng của hệ thống:** {pred.get('adaptive_reaction')}")
     else:
         st.warning("Chưa có thực thể trong bộ nhớ. Hãy sang tab 'Nhập liệu Sự kiện' để thêm tình huống mô phỏng.")
