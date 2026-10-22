@@ -3,8 +3,6 @@ import json
 import os
 import time
 import re
-import pandas as pd
-import random
 import requests
 
 st.set_page_config(page_title="AGI Cognitive Dashboard", page_icon="🧠", layout="wide")
@@ -28,23 +26,28 @@ class AGIMemory:
         if eid not in self.nodes:
             self.nodes[eid] = {"type": etype, "properties": props or {}, "created": time.time()}
         elif props:
-            self.nodes[eid]["properties"].update(props)
+            self.nodes[eid].setdefault("properties", {}).update(props)
 
     def add_relation(self, src, tgt, rel, weight=1.0):
-        src, tgt, rel = src.strip().lower(), tgt.strip().lower(), rel.strip().lower()
+        src = str(src).strip().lower()
+        tgt = str(tgt).strip().lower()
+        rel = str(rel).strip().lower()
         if not src or not tgt:
             return
         self.add_entity(src)
         self.add_entity(tgt)
         for e in self.edges:
             if e["source"] == src and e["target"] == tgt and e["relation"] == rel:
-                e["weight"] = min(5.0, e["weight"] + 0.3)
+                e["weight"] = min(5.0, e.get("weight", 1) + 0.3)
                 return
         self.edges.append({"source": src, "target": tgt, "relation": rel, "weight": weight})
 
     def save(self):
-        with open(self.path, "w", encoding="utf-8") as f:
-            json.dump({"nodes": self.nodes, "edges": self.edges}, f, ensure_ascii=False, indent=2)
+        try:
+            with open(self.path, "w", encoding="utf-8") as f:
+                json.dump({"nodes": self.nodes, "edges": self.edges}, f, ensure_ascii=False, indent=2)
+        except:
+            pass
 
     def load(self):
         if os.path.exists(self.path):
@@ -54,7 +57,8 @@ class AGIMemory:
                     self.nodes = d.get("nodes", {})
                     self.edges = d.get("edges", [])
             except:
-                pass
+                self.nodes = {}
+                self.edges = []
 
 # ==================== EXTRACTOR ====================
 class Extractor:
@@ -65,7 +69,7 @@ class Extractor:
         count = 0
         for sent in [s.strip() for s in re.split(r'[.\n;]', text) if s.strip()]:
             m = re.search(r"(.+?)\s+(là|sử dụng|dùng|tạo ra|mô phỏng)\s+(.+)", sent, re.I)
-            if m and len(m.group(1)) > 1 and len(m.group(3)) > 1:
+            if m and len(m.group(1).strip()) > 1 and len(m.group(3).strip()) > 1:
                 self.mem.add_entity(m.group(1), "Thực thể")
                 self.mem.add_entity(m.group(3), "Thực thể")
                 self.mem.add_relation(m.group(1), m.group(3), m.group(2))
@@ -80,7 +84,7 @@ class Extractor:
 def wiki_search(q):
     try:
         for lang in ["vi", "en"]:
-            url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(q.replace(' ','_'))}"
+            url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{requests.utils.quote(str(q).replace(' ', '_'))}"
             r = requests.get(url, timeout=6, headers={"User-Agent": "AGI/1.0"})
             if r.status_code == 200:
                 ext = r.json().get("extract", "")
@@ -94,9 +98,9 @@ def ddg_search(q):
     try:
         r = requests.get("https://api.duckduckgo.com/", params={"q": q, "format": "json", "no_html": 1}, timeout=6)
         if r.status_code == 200:
-            d = r.json()
-            if len(d.get("AbstractText", "")) > 30:
-                return d["AbstractText"][:350]
+            abstract = r.json().get("AbstractText", "")
+            if len(abstract) > 30:
+                return abstract[:350]
     except:
         pass
     return ""
@@ -109,9 +113,9 @@ def gemini_ask(prompt):
         client = genai.Client(api_key=GEMINI_API_KEY)
         for model in ["gemini-2.5-flash", "gemini-1.5-flash"]:
             try:
-                t = client.models.generate_content(model=model, contents=prompt).text.strip()
-                if len(t) > 10:
-                    return t[:400]
+                text = client.models.generate_content(model=model, contents=prompt).text.strip()
+                if len(text) > 10:
+                    return text[:400]
             except:
                 continue
     except:
@@ -125,40 +129,38 @@ class Engine:
         self.last = 0
         self.goals = []
         self.progress = {}
-        self.uncertainty = {}  # entity -> điểm không chắc chắn (cao = chưa rõ)
+        self.uncertainty = {}
 
     def candidates(self):
-        skip = ["Thông tin", "AI", "File"]
-        return [n for n, i in self.mem.nodes.items() if i.get("type") not in skip]
+        return [n for n, i in self.mem.nodes.items() if i.get("type") not in ["Thông tin", "AI", "File"]]
 
     def add_goal(self, name, need=3):
-        name = name.strip().lower()
-        if name and name not in [g["name"] for g in self.goals]:
-            self.goals.append({"name": name, "need": need, "done": False})
+        name = str(name).strip().lower()
+        if not name:
+            return
+        if name not in [g["name"] for g in self.goals]:
+            self.goals.append({"name": name, "need": int(need), "done": False})
             self.progress[name] = 0
             self.uncertainty[name] = 1.0
 
-    def update_uncertainty(self, entity, info_quality):
-        """Giảm sự không chắc chắn khi có thông tin tốt"""
+    def update_uncertainty(self, entity, quality):
         cur = self.uncertainty.get(entity, 1.0)
-        reduction = info_quality * 0.25
-        self.uncertainty[entity] = max(0.05, cur - reduction)
+        self.uncertainty[entity] = max(0.05, cur - quality * 0.25)
 
     def pick_target(self):
-        # Ưu tiên mục tiêu chưa xong có uncertainty cao
-        active = [g for g in self.goals if not g["done"]]
+        active = [g for g in self.goals if not g.get("done")]
         if active:
             active.sort(key=lambda g: -self.uncertainty.get(g["name"], 0.5))
             return active[0]["name"]
-        c = self.candidates()
-        if not c:
+        cands = self.candidates()
+        if not cands:
             return None
-        # Chọn node có uncertainty cao nhất
-        c.sort(key=lambda x: -self.uncertainty.get(x, 0.8))
-        return c[0]
+        cands.sort(key=lambda x: -self.uncertainty.get(x, 0.8))
+        return cands[0]
 
     def explore(self, entity):
         self.last = time.time()
+        entity = str(entity).strip().lower()
         infos = []
 
         w = wiki_search(entity)
@@ -167,7 +169,7 @@ class Engine:
         d = ddg_search(entity)
         if d:
             infos.append(("DDG", d, 0.55))
-        if GEMINI_API_KEY and len(infos) < 2:
+        if len(infos) < 2:
             g = gemini_ask(f"Giải thích ngắn về '{entity}' bằng tiếng Việt.")
             if g:
                 infos.append(("Gemini", g, 0.65))
@@ -175,35 +177,47 @@ class Engine:
         if not infos:
             return {"ok": False, "msg": "Không tìm được thông tin"}
 
-        best_src, best_txt, best_q = max(infos, key=lambda x: x[2])
-        node = f"info_{int(time.time()) % 100000}"
-        self.mem.add_entity(node, "Thông tin", {"src": best_src, "content": best_txt, "about": entity})
-        self.mem.add_relation(entity, node, "có thông tin", weight=1.5 + best_q)
+        src, txt, q = max(infos, key=lambda x: x[2])
+        node_id = f"info_{int(time.time()) % 100000}"
+        self.mem.add_entity(node_id, "Thông tin", {"src": src, "content": txt, "about": entity})
+        self.mem.add_relation(entity, node_id, "có thông tin", weight=1.5 + q)
         self.mem.save()
 
-        # Học + giảm uncertainty
         self.progress[entity] = self.progress.get(entity, 0) + 1
-        self.update_uncertainty(entity, best_q)
+        self.update_uncertainty(entity, q)
 
         for g in self.goals:
             if g["name"] == entity and not g["done"] and self.progress.get(entity, 0) >= g["need"]:
                 g["done"] = True
 
-        return {"ok": True, "msg": f"{best_src}: {best_txt[:60]}...", "unc": round(self.uncertainty.get(entity, 1), 2)}
+        return {"ok": True, "msg": f"{src}: {txt[:70]}", "unc": round(self.uncertainty.get(entity, 1.0), 2)}
 
     def auto_step(self):
         if time.time() - self.last < 8:
             return None
-        t = self.pick_target()
-        if not t:
+        target = self.pick_target()
+        if not target:
             return None
-        return self.explore(t)
+        return self.explore(target)
 
-# ==================== KHỞI TẠO ====================
+# ==================== KHỞI TẠO AN TOÀN ====================
 if "mem" not in st.session_state:
     st.session_state.mem = AGIMemory()
+
 if "eng" not in st.session_state:
     st.session_state.eng = Engine(st.session_state.mem)
+else:
+    # Đảm bảo thuộc tính tồn tại nếu object cũ
+    eng_tmp = st.session_state.eng
+    if not hasattr(eng_tmp, "uncertainty"):
+        eng_tmp.uncertainty = {}
+    if not hasattr(eng_tmp, "progress"):
+        eng_tmp.progress = {}
+    if not hasattr(eng_tmp, "goals"):
+        eng_tmp.goals = []
+    if not hasattr(eng_tmp, "last"):
+        eng_tmp.last = 0
+
 if "running" not in st.session_state:
     st.session_state.running = False
 if "logs" not in st.session_state:
@@ -216,96 +230,102 @@ extractor = Extractor(mem)
 # ==================== GIAO DIỆN ====================
 st.title("🧠 AGI Cognitive Dashboard")
 
-# Sidebar
 with st.sidebar:
     st.header("Điều khiển")
-    if st.button("Dừng chạy ngầm" if st.session_state.running else "Bật chạy ngầm", use_container_width=True):
+    label = "Dừng chạy ngầm" if st.session_state.running else "Bật chạy ngầm"
+    if st.button(label, use_container_width=True, key="btn_run"):
         st.session_state.running = not st.session_state.running
         st.rerun()
     st.write("Trạng thái:", "🟢 Đang chạy" if st.session_state.running else "🔴 Dừng")
 
     st.divider()
     st.subheader("Mục tiêu dài hạn")
-    goal_input = st.text_input("Tên mục tiêu")
-    if st.button("Thêm mục tiêu", use_container_width=True):
-        if goal_input.strip():
-            eng.add_goal(goal_input.strip())
-            st.success(f"Đã thêm: {goal_input}")
+    goal_name = st.text_input("Tên mục tiêu", key="goal_input")
+    if st.button("Thêm mục tiêu", use_container_width=True, key="btn_goal"):
+        if goal_name and goal_name.strip():
+            eng.add_goal(goal_name.strip())
+            st.success("Đã thêm")
             st.rerun()
 
     if eng.goals:
         for g in eng.goals:
-            unc = eng.uncertainty.get(g["name"], 1.0)
-            prog = eng.progress.get(g["name"], 0)
-            status = "✅" if g["done"] else f"{prog}/{g['need']}"
-            st.caption(f"{status} {g['name']} | không chắc: {unc:.2f}")
+            name = g.get("name", "?")
+            unc = eng.uncertainty.get(name, 1.0)
+            prog = eng.progress.get(name, 0)
+            need = g.get("need", 3)
+            mark = "✅" if g.get("done") else f"{prog}/{need}"
+            st.caption(f"{mark} {name} | không chắc: {unc:.2f}")
 
     if st.session_state.logs:
         st.divider()
-        st.caption("Nhật ký")
-        for lg in reversed(st.session_state.logs[-5:]):
-            st.caption(f"• {lg}")
+        st.caption("Nhật ký gần nhất")
+        for item in reversed(st.session_state.logs[-5:]):
+            st.caption(f"• {item}")
 
-# Tabs
 tab1, tab2, tab3 = st.tabs(["Nhập liệu", "Thông tin", "Khám phá"])
 
 with tab1:
     st.subheader("Nạp văn bản")
-    txt = st.text_area("Nội dung", height=100)
-    if st.button("Trích xuất vào bộ nhớ"):
-        if txt.strip():
-            n = extractor.run(txt)
+    text_in = st.text_area("Nội dung", height=120, key="text_area")
+    if st.button("Trích xuất vào bộ nhớ", key="btn_extract"):
+        if text_in and text_in.strip():
+            n = extractor.run(text_in)
             st.success(f"Đã nạp {n} mục")
             st.rerun()
 
     st.divider()
     st.subheader("Upload file .txt")
-    files = st.file_uploader("Chọn file", type=["txt"], accept_multiple_files=True)
-    if files:
-        for f in files:
-            save_path = os.path.join(KNOWLEDGE_FOLDER, f.name)
-            with open(save_path, "wb") as out:
-                out.write(f.read())
-            st.success(f"Đã lưu {f.name}")
-        st.rerun()
+    uploaded = st.file_uploader("Chọn một hoặc nhiều file", type=["txt"], accept_multiple_files=True, key="uploader")
+    if uploaded:
+        for uf in uploaded:
+            path = os.path.join(KNOWLEDGE_FOLDER, uf.name)
+            with open(path, "wb") as f:
+                f.write(uf.read())
+            st.success(f"Đã lưu: {uf.name}")
 
-    existing = [f for f in os.listdir(KNOWLEDGE_FOLDER) if f.endswith(".txt")]
-    if existing:
-        st.caption("File đã có: " + ", ".join(existing))
+    try:
+        existing_files = [f for f in os.listdir(KNOWLEDGE_FOLDER) if f.endswith(".txt")]
+        if existing_files:
+            st.caption("File trong thư mục: " + ", ".join(existing_files))
+    except:
+        pass
 
 with tab2:
-    st.metric("Số thực thể", len(mem.nodes))
-    st.metric("Số quan hệ", len(mem.edges))
-    infos = [(k, v) for k, v in mem.nodes.items() if v.get("type") == "Thông tin"]
-    if infos:
+    col1, col2 = st.columns(2)
+    col1.metric("Thực thể", len(mem.nodes))
+    col2.metric("Quan hệ", len(mem.edges))
+
+    info_nodes = [(k, v) for k, v in mem.nodes.items() if v.get("type") == "Thông tin"]
+    if info_nodes:
         st.subheader("Thông tin đã thu thập")
-        for k, v in reversed(infos[-10:]):
-            p = v.get("properties", {})
-            with st.expander(f"{p.get('about', '?')} ← {p.get('src', '')}"):
-                st.write(p.get("content", ""))
+        for k, v in list(reversed(info_nodes))[:12]:
+            props = v.get("properties", {})
+            title = f"{props.get('about', '?')}  ←  {props.get('src', '')}"
+            with st.expander(title):
+                st.write(props.get("content", "(không có nội dung)"))
 
 with tab3:
     cands = eng.candidates()
     if cands:
-        choice = st.selectbox("Chọn để khám phá", cands)
-        if st.button("Khám phá ngay", use_container_width=True):
-            with st.spinner("Đang tìm..."):
-                res = eng.explore(choice)
-            if res.get("ok"):
-                st.success(res["msg"])
-                st.info(f"Độ không chắc chắn còn lại: {res.get('unc', '?')}")
-                st.session_state.logs.append(f"{choice} → {res['msg'][:40]}")
+        selected = st.selectbox("Chọn thực thể", cands, key="sel_entity")
+        if st.button("Khám phá ngay", use_container_width=True, key="btn_explore"):
+            with st.spinner("Đang tìm thông tin..."):
+                result = eng.explore(selected)
+            if result.get("ok"):
+                st.success(result["msg"])
+                st.info(f"Độ không chắc chắn còn lại: {result.get('unc', '?')}")
+                st.session_state.logs.append(f"{selected} → ok")
                 st.rerun()
             else:
-                st.warning(res.get("msg", "Thất bại"))
+                st.warning(result.get("msg", "Không thành công"))
     else:
-        st.info("Chưa có thực thể. Hãy nạp văn bản trước.")
+        st.info("Chưa có thực thể nào. Hãy nạp văn bản ở tab Nhập liệu.")
 
-# Background
+# ==================== BACKGROUND ====================
 if st.session_state.running:
-    result = eng.auto_step()
-    if result and result.get("ok"):
-        st.toast(result["msg"][:50])
-        st.session_state.logs.append(result["msg"][:40])
-    time.sleep(6)
+    step = eng.auto_step()
+    if step and step.get("ok"):
+        st.toast(step["msg"][:60])
+        st.session_state.logs.append(step["msg"][:50])
+    time.sleep(7)
     st.rerun()
