@@ -59,7 +59,7 @@ class Extractor:
         self.mem.save()
         return count
 
-# ==================== AI WORLD MODEL (HTTP REST API + GEMINI-1.5-FLASH) ====================
+# ==================== AI WORLD MODEL (HTTP REST API + v1 STABLE) ====================
 class AGIWorldModel:
     def __init__(self, memory_system):
         self.memory = memory_system
@@ -76,8 +76,8 @@ class AGIWorldModel:
                 "simulated_success": False
             }
         
-        # Sử dụng model gemini-1.5-flash chuẩn xác để tránh lỗi 404
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
+        # Sử dụng endpoint phiên bản v1 chuẩn xác và ổn định cao
+        url = f"https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key={api_key}"
         headers = {'Content-Type': 'application/json'}
         
         prompt = f"""
@@ -119,6 +119,7 @@ class AGIWorldModel:
                 return data
                 
             except urllib.error.HTTPError as e:
+                error_body = e.read().decode('utf-8') if hasattr(e, 'read') else str(e)
                 if e.code == 503 and attempt < max_retries - 1:
                     time.sleep(2)
                     continue
@@ -128,7 +129,7 @@ class AGIWorldModel:
                         "domain": "AI Error",
                         "detected_action": "error",
                         "action_description": "Lỗi kết nối hoặc xử lý từ Gemini API",
-                        "predicted_outcome": f"Chi tiết lỗi HTTP {e.code}: Máy chủ đang quá tải hoặc yêu cầu không hợp lệ.",
+                        "predicted_outcome": f"Chi tiết lỗi HTTP {e.code}: {error_body}",
                         "estimated_risk": 1.0,
                         "adaptive_reaction": "Hệ thống ghi nhận sự cố và duy trì vận hành an toàn.",
                         "simulated_success": False
