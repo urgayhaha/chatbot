@@ -111,7 +111,7 @@ def gemini_ask(prompt):
     try:
         from google import genai
         client = genai.Client(api_key=GEMINI_API_KEY)
-        for model in ["gemini-2.5-flash", "gemini-1.5-flash"]:
+        for model in ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-1.5-flash"]:
             try:
                 text = client.models.generate_content(model=model, contents=prompt).text.strip()
                 if len(text) > 10:
@@ -122,7 +122,7 @@ def gemini_ask(prompt):
         pass
     return ""
 
-# ==================== ENGINE ====================
+# ==================== ENGINE (ĐÃ NÂNG CẤP) ====================
 class Engine:
     def __init__(self, mem):
         self.mem = mem
@@ -130,8 +130,8 @@ class Engine:
         self.goals = []
         self.progress = {}
         self.uncertainty = {}
-        self.source_quality = {"Wiki": 0.7, "DDG": 0.5, "Gemini": 0.6}  # tự điều chỉnh
-        self.knowledge_base = {}  # entity -> list thông tin đã có
+        self.source_quality = {"Wiki": 0.7, "DDG": 0.5, "Gemini": 0.6}
+        self.knowledge_base = {}
 
     def decompose_goal(self, goal_name):
         """Phân rã mục tiêu thành các câu hỏi con đơn giản"""
@@ -147,10 +147,9 @@ class Engine:
         old = self.knowledge_base.get(entity, [])
         if not old:
             return False
-        # Đơn giản: nếu thông tin mới quá ngắn hoặc trùng lặp hoàn toàn
         for o in old[-3:]:
             if new_info[:50].lower() in o.lower() or o[:50].lower() in new_info.lower():
-                return True  # coi như trùng, không hữu ích thêm
+                return True
         return False
 
     def update_source_quality(self, source, was_useful):
@@ -164,18 +163,30 @@ class Engine:
     def update_uncertainty(self, entity, quality, is_new=True):
         cur = self.uncertainty.get(entity, 1.0)
         if not is_new:
-            quality *= 0.3  # thông tin trùng giảm ít hơn
-        # Giảm mạnh hơn nếu đã có nhiều thông tin
+            quality *= 0.3
         count = len(self.knowledge_base.get(entity, []))
         factor = 0.3 / (1 + count * 0.15)
         self.uncertainty[entity] = max(0.05, cur - quality * factor)
+
+    def candidates(self):
+        return [n for n, i in self.mem.nodes.items() if i.get("type") not in ["Thông tin", "AI", "File"]]
+
+    def pick_target(self):
+        active = [g for g in self.goals if not g.get("done")]
+        if active:
+            active.sort(key=lambda g: -self.uncertainty.get(g["name"], 0.5))
+            return active[0]["name"]
+        cands = self.candidates()
+        if not cands:
+            return None
+        cands.sort(key=lambda x: -self.uncertainty.get(x, 0.8))
+        return cands[0]
 
     def explore(self, entity):
         self.last = time.time()
         entity = str(entity).strip().lower()
         infos = []
 
-        # Thu thập từ các nguồn, ưu tiên nguồn có quality cao
         sources = sorted(self.source_quality.items(), key=lambda x: -x[1])
         
         for src_name, _ in sources:
@@ -193,11 +204,9 @@ class Engine:
         if not infos:
             return {"ok": False, "msg": "Không tìm được"}
 
-        # Chọn thông tin tốt nhất và kiểm tra trùng
         best_src, best_txt = infos[0]
         is_duplicate = self.check_contradiction(entity, best_txt)
         
-        # Lưu
         node_id = f"info_{int(time.time()) % 100000}"
         self.mem.add_entity(node_id, "Thông tin", {
             "src": best_src, "content": best_txt, "about": entity
@@ -205,14 +214,12 @@ class Engine:
         self.mem.add_relation(entity, node_id, "có thông tin")
         self.mem.save()
 
-        # Học
         self.knowledge_base.setdefault(entity, []).append(best_txt[:200])
         self.progress[entity] = self.progress.get(entity, 0) + 1
         quality = self.source_quality.get(best_src, 0.5)
         self.update_uncertainty(entity, quality, is_new=not is_duplicate)
         self.update_source_quality(best_src, not is_duplicate)
 
-        # Cập nhật goal
         for g in self.goals:
             if g["name"] == entity and not g["done"]:
                 if self.progress.get(entity, 0) >= g["need"] or self.uncertainty.get(entity, 1) < 0.25:
@@ -233,6 +240,14 @@ class Engine:
         self.progress[name] = 0
         self.uncertainty[name] = 1.0
 
+    def auto_step(self):
+        if time.time() - self.last < 8:
+            return None
+        target = self.pick_target()
+        if not target:
+            return None
+        return self.explore(target)
+
 # ==================== KHỞI TẠO AN TOÀN ====================
 if "mem" not in st.session_state:
     st.session_state.mem = AGIMemory()
@@ -240,7 +255,6 @@ if "mem" not in st.session_state:
 if "eng" not in st.session_state:
     st.session_state.eng = Engine(st.session_state.mem)
 else:
-    # Đảm bảo thuộc tính tồn tại nếu object cũ
     eng_tmp = st.session_state.eng
     if not hasattr(eng_tmp, "uncertainty"):
         eng_tmp.uncertainty = {}
@@ -250,6 +264,10 @@ else:
         eng_tmp.goals = []
     if not hasattr(eng_tmp, "last"):
         eng_tmp.last = 0
+    if not hasattr(eng_tmp, "source_quality"):
+        eng_tmp.source_quality = {"Wiki": 0.7, "DDG": 0.5, "Gemini": 0.6}
+    if not hasattr(eng_tmp, "knowledge_base"):
+        eng_tmp.knowledge_base = {}
 
 if "running" not in st.session_state:
     st.session_state.running = False
@@ -346,7 +364,7 @@ with tab3:
                 result = eng.explore(selected)
             if result.get("ok"):
                 st.success(result["msg"])
-                st.info(f"Độ không chắc chắn còn lại: {result.get('unc', '?')}")
+                st.info(f"Độ không chắc chắn còn lại: {result.get('unc', '?')} | Trùng lặp: {result.get('duplicate', False)}")
                 st.session_state.logs.append(f"{selected} → ok")
                 st.rerun()
             else:
