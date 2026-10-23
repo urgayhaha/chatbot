@@ -15,10 +15,8 @@ class FeatureEncoder(nn.Module):
     def __init__(self, state_dim, feature_dim=32):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(state_dim, 64),
-            nn.ReLU(),
-            nn.Linear(64, feature_dim),
-            nn.ReLU()
+            nn.Linear(state_dim, 64), nn.ReLU(),
+            nn.Linear(64, feature_dim), nn.ReLU()
         )
     def forward(self, x):
         return self.net(x)
@@ -27,8 +25,7 @@ class ForwardModel(nn.Module):
     def __init__(self, feature_dim, action_dim):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(feature_dim + action_dim, 64),
-            nn.ReLU(),
+            nn.Linear(feature_dim + action_dim, 64), nn.ReLU(),
             nn.Linear(64, feature_dim)
         )
     def forward(self, feat, action_oh):
@@ -38,8 +35,7 @@ class InverseModel(nn.Module):
     def __init__(self, feature_dim, action_dim):
         super().__init__()
         self.net = nn.Sequential(
-            nn.Linear(feature_dim * 2, 64),
-            nn.ReLU(),
+            nn.Linear(feature_dim * 2, 64), nn.ReLU(),
             nn.Linear(64, action_dim)
         )
     def forward(self, feat, next_feat):
@@ -64,8 +60,8 @@ class ICMAgent:
         self.forward_m = ForwardModel(feature_dim, action_dim)
         self.inverse_m = InverseModel(feature_dim, action_dim)
         self.policy = ActorCritic(feature_dim, action_dim)
-        params = list(self.encoder.parameters()) + list(self.forward_m.parameters()) + \
-                 list(self.inverse_m.parameters()) + list(self.policy.parameters())
+        params = (list(self.encoder.parameters()) + list(self.forward_m.parameters()) +
+                  list(self.inverse_m.parameters()) + list(self.policy.parameters()))
         self.opt = torch.optim.Adam(params, lr=lr)
         self.memory = deque(maxlen=2000)
         self.beta = 0.2
@@ -100,14 +96,12 @@ class ICMAgent:
         nfeat = self.encoder(NS)
         a_oh = self.onehot(A)
 
-        # ICM
         inv_logits = self.inverse_m(feat, nfeat)
         inv_loss = F.cross_entropy(inv_logits, A)
         pred_nf = self.forward_m(feat.detach(), a_oh)
         fwd_loss = F.mse_loss(pred_nf, nfeat.detach())
         icm_loss = (1 - self.beta) * fwd_loss + self.beta * inv_loss
 
-        # Intrinsic + Policy
         with torch.no_grad():
             intr = torch.FloatTensor(self.intrinsic_reward(S, A, NS))
         total_r = R + intr
@@ -124,8 +118,8 @@ class ICMAgent:
 
         pol_loss = -(logp * adv.detach()).mean()
         val_loss = F.mse_loss(values.squeeze(), targets)
-
         loss = icm_loss + pol_loss + 0.5 * val_loss - 0.01 * ent
+
         self.opt.zero_grad()
         loss.backward()
         torch.nn.utils.clip_grad_norm_(
@@ -144,7 +138,7 @@ def dummy_step(state_dim=6, action_dim=4):
     d = float(np.random.rand() < 0.03)
     return s, a, r, ns, d
 
-# ==================== STREAMLIT ====================
+# ==================== APP ====================
 if "agent" not in st.session_state:
     st.session_state.agent = ICMAgent()
 if "logs" not in st.session_state:
@@ -157,25 +151,68 @@ if "running" not in st.session_state:
 agent = st.session_state.agent
 
 st.title("🧠 Intrinsic Motivation Lab (ICM)")
-st.caption("Forward Model + Inverse Model + Prediction Error Reward + Actor-Critic")
+st.caption("Forward Model + Inverse Model + Prediction Error + Actor-Critic")
 
-col1, col2, col3 = st.columns(3)
-with col1:
-    if st.button("🟢 Bắt đầu huấn luyện" if not st.session_state.running else "⏸️ Tạm dừng", use_container_width=True):
+c1, c2, c3 = st.columns(3)
+with c1:
+    label = "⏸️ Tạm dừng" if st.session_state.running else "🟢 Bắt đầu huấn luyện"
+    if st.button(label, use_container_width=True):
         st.session_state.running = not st.session_state.running
         st.rerun()
-with col2:
-    if st.button("🔄 Reset Agent", use_container_width=True):
+with c2:
+    if st.button("🔄 Reset", use_container_width=True):
         st.session_state.agent = ICMAgent()
         st.session_state.logs = []
         st.session_state.step_count = 0
         st.session_state.running = False
         st.rerun()
-with col3:
+with c3:
     st.metric("Steps", st.session_state.step_count)
 
 st.divider()
 
-# Hiển thị kiến trúc
-with st.expander("📐 Kiến trúc", expanded=False):
-    st.markdown("""
+with st.expander("Kiến trúc hệ thống"):
+    st.write("State + Action → Encoder → Feature")
+    st.write("→ Inverse Model (dự đoán hành động)")
+    st.write("→ Forward Model (dự đoán trạng thái kế) → Prediction Error → Intrinsic Reward")
+    st.write("→ Policy (Actor-Critic) chọn hành động tiếp theo")
+
+st.subheader("Tiến trình")
+if st.session_state.logs:
+    last = st.session_state.logs[-1]
+    m1, m2, m3 = st.columns(3)
+    m1.metric("ICM Loss", f"{last['icm']:.4f}")
+    m2.metric("Forward Loss", f"{last['fwd']:.4f}")
+    m3.metric("Policy Loss", f"{last['pol']:.4f}")
+    rows = [{"Step": x["step"], "ICM": round(x["icm"], 4), "Fwd": round(x["fwd"], 4), "Pol": round(x["pol"], 4)}
+            for x in st.session_state.logs[-12:]]
+    st.dataframe(rows, use_container_width=True, hide_index=True)
+else:
+    st.info("Nhấn Bắt đầu huấn luyện.")
+
+st.divider()
+if st.button("Chạy 1 bước thủ công"):
+    s, a, r, ns, d = dummy_step()
+    agent.store(s, a, r, ns, d)
+    stats = agent.update()
+    if stats:
+        st.success(f"ICM {stats['icm']:.4f} | Fwd {stats['fwd']:.4f} | Pol {stats['pol']:.4f}")
+    ir = agent.intrinsic_reward(
+        torch.FloatTensor(s).unsqueeze(0),
+        torch.LongTensor([a]),
+        torch.FloatTensor(ns).unsqueeze(0)
+    )[0]
+    st.caption(f"Intrinsic reward: {ir:.4f}")
+
+if st.session_state.running:
+    for _ in range(4):
+        s, a, r, ns, d = dummy_step()
+        agent.store(s, a, r, ns, d)
+        st.session_state.step_count += 1
+    stats = agent.update()
+    if stats:
+        stats["step"] = st.session_state.step_count
+        st.session_state.logs.append(stats)
+        st.session_state.logs = st.session_state.logs[-80:]
+    time.sleep(0.4)
+    st.rerun()
