@@ -6,158 +6,119 @@ import time
 
 st.set_page_config(page_title="Động lực Nội tại", page_icon="🧠", layout="wide")
 
-# ==================== ICM ====================
 class SimpleICM:
-    def __init__(self, state_dim=6, action_dim=4, feature_dim=16, lr=0.008):
-        self.sd = state_dim
-        self.ad = action_dim
-        self.fd = feature_dim
-        self.lr = lr
-        self.W_enc = np.random.randn(state_dim, feature_dim).astype(np.float32) * 0.1
-        self.W_fwd = np.random.randn(feature_dim + action_dim, feature_dim).astype(np.float32) * 0.1
-        self.memory = deque(maxlen=800)
+    def __init__(self):
+        self.sd, self.ad, self.fd = 6, 4, 12
+        self.lr = 0.01
+        self.W_enc = np.random.randn(self.sd, self.fd).astype(np.float32) * 0.1
+        self.W_fwd = np.random.randn(self.fd + self.ad, self.fd).astype(np.float32) * 0.1
+        self.mem = deque(maxlen=500)
 
-    def encode(self, s):
-        return np.tanh(s @ self.W_enc)
+    def enc(self, s):
+        return np.tanh(np.asarray(s, dtype=np.float32) @ self.W_enc)
 
-    def oh(self, a):
-        v = np.zeros(self.ad, dtype=np.float32)
-        v[int(a)] = 1.0
-        return v
+    def pred(self, f, a):
+        oh = np.zeros(self.ad, dtype=np.float32)
+        oh[int(a)] = 1.0
+        return np.tanh(np.concatenate([f, oh]) @ self.W_fwd)
 
-    def predict(self, f, a):
-        return np.tanh(np.concatenate([f, self.oh(a)]) @ self.W_fwd)
+    def error(self, s, a, ns):
+        return float(np.mean((self.pred(self.enc(s), a) - self.enc(ns)) ** 2))
 
-    def intr(self, s, a, ns):
-        err = self.predict(self.encode(s), a) - self.encode(ns)
-        return float(np.mean(err ** 2))
+    def add(self, s, a, ns):
+        self.mem.append((np.array(s), int(a), np.array(ns)))
 
-    def store(self, s, a, r, ns, d):
-        self.memory.append((np.array(s), int(a), float(r), np.array(ns), float(d)))
-
-    def update(self, bs=24):
-        if len(self.memory) < bs:
+    def train(self, n=16):
+        if len(self.mem) < n:
             return None
-        batch = random.sample(self.memory, bs)
+        batch = random.sample(self.mem, n)
         losses = []
-        for s, a, r, ns, d in batch:
-            f, nf = self.encode(s), self.encode(ns)
-            pred = self.predict(f, a)
-            err = pred - nf
-            losses.append(np.mean(err ** 2))
-            x = np.concatenate([f, self.oh(a)])
-            self.W_fwd -= self.lr * np.outer(x, err) * (1 - pred ** 2)
+        for s, a, ns in batch:
+            f, nf = self.enc(s), self.enc(ns)
+            p = self.pred(f, a)
+            e = p - nf
+            losses.append(np.mean(e ** 2))
+            oh = np.zeros(self.ad, dtype=np.float32)
+            oh[a] = 1.0
+            x = np.concatenate([f, oh])
+            self.W_fwd -= self.lr * np.outer(x, e) * (1 - p ** 2)
         return float(np.mean(losses))
 
-def step(sd=6, ad=4):
-    s = np.random.randn(sd).astype(np.float32) * 0.4
-    a = np.random.randint(0, ad)
+def make_transition():
+    s = np.random.randn(6).astype(np.float32) * 0.5
+    a = random.randint(0, 3)
     ns = s.copy()
-    ns[a % sd] += np.random.uniform(0.5, 1.0)
-    return s, a, 0.0, ns, 0.0
+    ns[a % 6] += random.uniform(0.4, 1.0)
+    return s, a, ns
 
-# ==================== TRẠNG THÁI ====================
-if "agent" not in st.session_state:
-    st.session_state.agent = SimpleICM()
-if "logs" not in st.session_state:
-    st.session_state.logs = []
-if "steps" not in st.session_state:
-    st.session_state.steps = 0
-if "running" not in st.session_state:
-    st.session_state.running = False
-if "goals" not in st.session_state:
-    st.session_state.goals = []
-if "explored" not in st.session_state:
-    st.session_state.explored = set()
+# ----- State -----
+if "icm" not in st.session_state:
+    st.session_state.icm = SimpleICM()
+if "history" not in st.session_state:
+    st.session_state.history = []
+if "n_steps" not in st.session_state:
+    st.session_state.n_steps = 0
+if "on" not in st.session_state:
+    st.session_state.on = False
 
-agent = st.session_state.agent
+icm = st.session_state.icm
 
-# ==================== UI ====================
-st.title("🧠 Phòng thí nghiệm Động lực Nội tại")
+st.title("Động lực Nội tại")
 
-# --- Bảng thống kê ---
-st.subheader("Tiến độ các thành phần")
-progress_data = [
-    ("Tín hiệu tự động (prediction error)", 60),
-    ("Tự chọn mục tiêu", 55),
+# Tiến độ
+st.write("**Tiến độ thành phần**")
+items = [
+    ("Tín hiệu dự đoán", 60),
     ("Tự kích hoạt", 65),
-    ("Hành động khám phá", 50),
-    ("Kết nối bên ngoài", 40),
-    ("Học từ kết quả", 45),
-    ("Mục tiêu dài hạn", 50),
-    ("Giảm sự không chắc chắn", 40),
+    ("Học từ sai số", 50),
+    ("Giảm không chắc chắn", 45),
 ]
-cols = st.columns(4)
-for i, (name, pct) in enumerate(progress_data):
-    with cols[i % 4]:
-        st.metric(name.split("(")[0].strip(), f"{pct}%")
-        st.progress(pct / 100)
+cs = st.columns(4)
+for col, (name, pct) in zip(cs, items):
+    col.metric(name, f"{pct}%")
+    col.progress(pct / 100.0)
 
-st.caption("Tổng thể ước lượng: ~50%")
 st.divider()
 
-# --- Điều khiển ---
-c1, c2, c3 = st.columns([2, 2, 1])
-with c1:
-    if st.button("⏸️ Dừng" if st.session_state.running else "🟢 Bật chạy ngầm", use_container_width=True):
-        st.session_state.running = not st.session_state.running
+# Điều khiển
+b1, b2, b3 = st.columns([2, 2, 1])
+with b1:
+    if st.button("Dừng" if st.session_state.on else "Bật chạy", use_container_width=True):
+        st.session_state.on = not st.session_state.on
         st.rerun()
-with c2:
-    if st.button("🔄 Reset", use_container_width=True):
-        for k in ["agent", "logs", "steps", "running", "goals", "explored"]:
-            if k in st.session_state:
-                del st.session_state[k]
+with b2:
+    if st.button("Reset", use_container_width=True):
+        st.session_state.icm = SimpleICM()
+        st.session_state.history = []
+        st.session_state.n_steps = 0
+        st.session_state.on = False
         st.rerun()
-with c3:
-    st.metric("Bước", st.session_state.steps)
+with b3:
+    st.metric("Bước", st.session_state.n_steps)
 
-# --- Prediction Error ---
-st.subheader("Prediction Error (Tín hiệu tò mò)")
-if st.session_state.logs:
-    st.metric("Forward Loss hiện tại", f"{st.session_state.logs[-1]['loss']:.5f}")
+# Kết quả
+st.subheader("Sai số dự đoán")
+hist = st.session_state.history
+if len(hist) > 0:
+    st.metric("Loss gần nhất", f"{hist[-1]['loss']:.5f}")
     st.dataframe(
-        [{"Bước": x["step"], "Prediction Error": round(x["loss"], 5)} for x in st.session_state.logs[-10:]],
-        use_container_width=True, hide_index=True
+        [{"Bước": h["step"], "Loss": round(h["loss"], 5)} for h in hist[-12:]],
+        use_container_width=True,
+        hide_index=True,
     )
 else:
-    st.info("Chưa có dữ liệu. Bật chạy ngầm để bắt đầu.")
+    st.info("Chưa có dữ liệu. Nhấn Bật chạy.")
 
-# --- Mục tiêu ---
-st.subheader("Mục tiêu dài hạn")
-gcol1, gcol2 = st.columns([3, 1])
-with gcol1:
-    new_g = st.text_input("Thêm mục tiêu", label_visibility="collapsed", placeholder="Nhập tên mục tiêu...")
-with gcol2:
-    if st.button("Thêm", use_container_width=True) and new_g.strip():
-        st.session_state.goals.append({"name": new_g.strip(), "done": False, "count": 0})
-        st.rerun()
-
-if st.session_state.goals:
-    for i, g in enumerate(st.session_state.goals):
-        status = "✅" if g["done"] else f"{g['count']}/3"
-        st.write(f"{status} — {g['name']}")
-else:
-    st.caption("Chưa có mục tiêu. Hệ thống có thể tự tạo khi chạy ngầm.")
-
-st.divider()
-with st.expander("Giải thích các thành phần"):
-    st.write("- **Tín hiệu tự động**: Prediction error của Forward Model.")
-    st.write("- **Tự kích hoạt**: Vòng lặp chạy ngầm tự sinh transition và cập nhật.")
-    st.write("- **Học từ kết quả**: Loss giảm → model dự đoán tốt hơn.")
-    st.write("- **Giảm không chắc chắn**: Error thấp hơn = đã hiểu môi trường hơn.")
-
-# --- Background ---
-if st.session_state.running:
-    for _ in range(6):
-        s, a, r, ns, d = step()
-        agent.store(s, a, r, ns, d)
-        st.session_state.steps += 1
-    loss = agent.update()
+# Chạy nền
+if st.session_state.on:
+    for _ in range(5):
+        s, a, ns = make_transition()
+        icm.add(s, a, ns)
+        st.session_state.n_steps += 1
+    loss = icm.train()
     if loss is not None:
-        st.session_state.logs.append({"step": st.session_state.steps, "loss": loss})
-        st.session_state.logs = st.session_state.logs[-50:]
-    # Tự tạo goal đơn giản
-    if len(st.session_state.goals) < 3 and st.session_state.steps % 50 == 0:
-        st.session_state.goals.append({"name": f"khám phá_{st.session_state.steps}", "done": False, "count": 0})
-    time.sleep(0.4)
+        st.session_state.history.append({"step": st.session_state.n_steps, "loss": loss})
+        if len(st.session_state.history) > 40:
+            st.session_state.history = st.session_state.history[-40:]
+    time.sleep(0.5)
     st.rerun()
