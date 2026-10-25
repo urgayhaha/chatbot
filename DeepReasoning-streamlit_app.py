@@ -94,7 +94,7 @@ class SmartPythonSandbox:
                 "bool": bool, "list": list, "dict": dict, "set": set, "tuple": tuple,
                 "sum": sum, "min": min, "max": max, "abs": abs, "enumerate": enumerate,
                 "zip": zip, "map": map, "filter": filter, "Exception": Exception,
-                "__import__": __import__  # <--- Bổ sung dòng này để cho phép import thư viện trong sandbox
+                "__import__": __import__
             }
         }
         try:
@@ -115,6 +115,16 @@ class SmartPythonSandbox:
             self.safe_globals["sympy"] = sympy
         except ImportError:
             pass
+
+    def execute(self, code):
+        output = io.StringIO()
+        error = None
+        try:
+            with contextlib.redirect_stdout(output):
+                exec(code, self.safe_globals)
+        except Exception as e:
+            error = traceback.format_exc()
+        return output.getvalue(), error
 
 # ==========================================
 # TẦNG 3: INTENT ROUTER & PLANNER
@@ -262,9 +272,8 @@ class AgentCore:
 # GIAO DIỆN WEB STREAMLIT
 # ==========================================
 def main():
-    # Khởi tạo state cho agent và memory
-    if "agent" not in st.session_state:
-        st.session_state.agent = AgentCore()
+    # Luôn khởi tạo mới hoàn toàn agent để tránh lỗi cache phiên bản cũ
+    agent = AgentCore()
 
     # Sidebar: Trạng thái tầng công cụ
     st.sidebar.markdown("## 🛠 Trạng thái công cụ")
@@ -274,7 +283,7 @@ def main():
     
     st.sidebar.markdown("---")
     if st.sidebar.button("📂 Xem bộ nhớ dài hạn (Memory)"):
-        st.sidebar.json(st.session_state.agent.memory.get_context())
+        st.sidebar.json(agent.memory.get_context())
 
     # Main Area
     st.title("🧠 AGI Deep Reasoner & Logic Engine")
@@ -294,7 +303,7 @@ def main():
             logs.append(msg)
 
         with st.spinner("🤖 Agent đang tiến hành suy luận sâu đa tầng..."):
-            final_result = st.session_state.agent.run(query, log_capture)
+            final_result = agent.run(query, log_capture)
 
         st.markdown("### 🎯 Kết quả cuối cùng")
         st.success(final_result)
