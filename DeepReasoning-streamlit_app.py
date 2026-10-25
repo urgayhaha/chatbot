@@ -1,140 +1,123 @@
 # -*- coding: utf-8 -*-
 """
-deep_reasoning_agent.py — Deep Reasoning Agent (Tree-of-Thoughts + Self-Verification)
-Chạy trên Streamlit. Giải bài toán từ đầu, không cần dữ liệu trước.
-Hỗ trợ Ollama local + OpenAI API (kể cả o1/o3).
-Chạy: pip install streamlit && streamlit run deep_reasoning_agent.py
+ensemble_free.py — Ensemble Deep Reasoning Agent HOÀN TOÀN MIỄN PHÍ
+3 model free cùng giải: Groq (Llama 3.1 70B) + Gemini 1.5 Flash + OpenRouter (Llama 70B free)
+Mức suy luận cố định MAX. Chạy: pip install streamlit && streamlit run ensemble_free.py
+Lấy key free: console.groq.com | aistudio.google.com | openrouter.ai
 """
 
 import streamlit as st
 import json
 import re
 import time
+import threading
 import urllib.request
 from abc import ABC, abstractmethod
 
-# ============================================================================
-# LLM BACKENDS
-# ============================================================================
+MAX_BRANCHES = 5
+MAX_TOP_K = 3
+MAX_DEPTH = 8
+
 class LLMBackend(ABC):
     @abstractmethod
-    def generate(self, prompt, system="", temperature=0.7, max_tokens=2500):
+    def generate(self, prompt, system="", temperature=0.7, max_tokens=3000):
         pass
 
 def is_error(text):
     return not text or text.startswith("[LLM_ERROR") or len(text.strip()) < 5
 
-class OllamaBackend(LLMBackend):
-    def __init__(self, model="llama3", url="http://localhost:11434/api/generate"):
-        self.model = model
-        self.url = url
-
-    def generate(self, prompt, system="", temperature=0.7, max_tokens=2500):
-        try:
-            data = {"model": self.model, "prompt": prompt, "system": system,
-                    "stream": False, "options": {"temperature": temperature, "num_predict": max_tokens}}
-            req = urllib.request.Request(self.url, data=json.dumps(data).encode('utf-8'),
-                                         headers={'Content-Type': 'application/json'})
-            with urllib.request.urlopen(req, timeout=180) as r:
-                res = json.loads(r.read().decode('utf-8'))
-            return res.get('response', '').strip()
-        except Exception as e:
-            return f"[LLM_ERROR: {e}]"
-
-class OpenAIBackend(LLMBackend):
-    def __init__(self, api_key, model="gpt-4o"):
+class GroqBackend(LLMBackend):
+    def __init__(self, api_key, model="llama-3.1-70b-versatile"):
         self.api_key = api_key
         self.model = model
-        self.url = "https://api.openai.com/v1/chat/completions"
+        self.url = "https://api.groq.com/openai/v1/chat/completions"
 
-    def generate(self, prompt, system="", temperature=0.7, max_tokens=2500):
+    def generate(self, prompt, system="", temperature=0.7, max_tokens=3000):
         try:
             messages = []
-            is_reasoning_model = self.model.startswith(("o1", "o3", "o4"))
-            if system and not is_reasoning_model:
-                messages.append({"role": "system", "content": system})
-            if is_reasoning_model and system:
-                prompt = system + "\n\n" + prompt
+            if system: messages.append({"role": "system", "content": system})
             messages.append({"role": "user", "content": prompt})
-            data = {"model": self.model, "messages": messages}
-            if is_reasoning_model:
-                data["max_completion_tokens"] = max_tokens
-            else:
-                data["temperature"] = temperature
-                data["max_tokens"] = max_tokens
+            data = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
             req = urllib.request.Request(self.url, data=json.dumps(data).encode('utf-8'),
-                                         headers={'Content-Type': 'application/json',
-                                                  'Authorization': f'Bearer {self.api_key}'})
-            with urllib.request.urlopen(req, timeout=300) as r:
+                headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.api_key}'})
+            with urllib.request.urlopen(req, timeout=120) as r:
                 res = json.loads(r.read().decode('utf-8'))
             return res['choices'][0]['message']['content'].strip()
         except Exception as e:
             return f"[LLM_ERROR: {e}]"
 
-# ============================================================================
-# PROMPTS
-# ============================================================================
-SYSTEM_DEEP = """Bạn là một nhà lý luận siêu hạng. Bạn luôn suy luận từng bước, xem xét nhiều hướng, tự kiểm tra lỗi, và không bao giờ bỏ qua chi tiết. Khi không chắc chắn, bạn thử nhiều phương pháp và đối chiếu kết quả."""
+class GeminiBackend(LLMBackend):
+    def __init__(self, api_key, model="gemini-1.5-flash"):
+        self.api_key = api_key
+        self.model = model
+        self.url = f"https://generativelanguage.googleapis.com/v1beta/models/{model}:generateContent?key={api_key}"
 
-DECOMPOSE_PROMPT = """Phân tích đề bài sau và chia thành các bước con cần giải quyết (tối đa 5 bước). Liệt kê từng bước ngắn gọn, đánh số 1. 2. 3.
+    def generate(self, prompt, system="", temperature=0.7, max_tokens=3000):
+        try:
+            full_prompt = (system + "\n\n" + prompt) if system else prompt
+            data = {"contents": [{"parts": [{"text": full_prompt}]}],
+                    "generationConfig": {"temperature": temperature, "maxOutputTokens": max_tokens}}
+            req = urllib.request.Request(self.url, data=json.dumps(data).encode('utf-8'),
+                headers={'Content-Type': 'application/json'})
+            with urllib.request.urlopen(req, timeout=120) as r:
+                res = json.loads(r.read().decode('utf-8'))
+            return res['candidates'][0]['content']['parts'][0]['text'].strip()
+        except Exception as e:
+            return f"[LLM_ERROR: {e}]"
+
+class OpenRouterBackend(LLMBackend):
+    def __init__(self, api_key, model="meta-llama/llama-3.1-70b-instruct:free"):
+        self.api_key = api_key
+        self.model = model
+        self.url = "https://openrouter.ai/api/v1/chat/completions"
+
+    def generate(self, prompt, system="", temperature=0.7, max_tokens=3000):
+        try:
+            messages = []
+            if system: messages.append({"role": "system", "content": system})
+            messages.append({"role": "user", "content": prompt})
+            data = {"model": self.model, "messages": messages, "temperature": temperature, "max_tokens": max_tokens}
+            req = urllib.request.Request(self.url, data=json.dumps(data).encode('utf-8'),
+                headers={'Content-Type': 'application/json', 'Authorization': f'Bearer {self.api_key}', 'HTTP-Referer': 'https://localhost'})
+            with urllib.request.urlopen(req, timeout=120) as r:
+                res = json.loads(r.read().decode('utf-8'))
+            return res['choices'][0]['message']['content'].strip()
+        except Exception as e:
+            return f"[LLM_ERROR: {e}]"
+
+SYSTEM_DEEP = "Bạn là nhà lý luận siêu hạng. Suy luận từng bước, xem xét nhiều hướng, tự kiểm tra lỗi."
+DECOMPOSE = "Phân tích đề bài, chia thành tối đa 5 bước con. Đánh số 1. 2. 3.\n\nĐề bài: {problem}\n\nCác bước:"
+GENERATE = "Đưa ra {n} HƯỚNG suy luận KHÁC NHAU cho bước hiện tại. Đánh số rõ ràng.\n\nĐề bài: {problem}\nĐã giải: {done}\nBước: {step}\nSuy luận đã có: {prev}\n\n{n} hướng:"
+EVALUATE = "Đánh giá độ hứa hẹn (1-10) của hướng này. Chỉ trả về số 1-10.\n\nĐề bài: {problem}\nBước: {step}\nHướng: {thought}\n\nĐiểm:"
+VERIFY = "Kiểm tra lời giải có đúng không. Đúng nói 'ĐÚNG', sai chỉ ra lỗi.\n\nĐề bài: {problem}\nLời giải: {solution}\n\nKết luận:"
+SYNTHESIZE = "Tổng hợp lời giải CHÍNH XÁC nhất. Trình bày từng bước, đáp án cuối in đậm.\n\nĐề bài: {problem}\nCác hướng: {branches}\n\nLời giải cuối:"
+JUDGE = """Dưới đây là 3 lời giải từ 3 AI khác nhau. Đối chiếu, tìm lỗi, đưa ra lời giải CUỐI CÙNG chính xác nhất. Nếu khác nhau, phân tích cái nào đúng. Đáp án cuối in đậm.
 
 Đề bài: {problem}
 
-Các bước:"""
+=== 1. Groq Llama 3.1 70B ===
+{sol1}
 
-GENERATE_PROMPT = """Bạn đang giải bài toán sau. Hãy đưa ra {n} HƯỚNG suy luận KHÁC NHAU cho bước hiện tại. Mỗi hướng phải là một cách tiếp cận khác nhau. Đánh số 1. 2. 3. rõ ràng.
+=== 2. Gemini 1.5 Flash ===
+{sol2}
 
-Đề bài: {problem}
-Các bước đã giải: {done_steps}
-Bước hiện tại: {current_step}
-Suy luận đã có: {previous_thoughts}
+=== 3. OpenRouter Llama 70B ===
+{sol3}
 
-{n} hướng suy luận khác nhau:"""
+Phân tích & Lời giải cuối cùng:
+"""
 
-EVALUATE_PROMPT = """Đánh giá độ hứa hẹn (1-10) của hướng suy luận sau. Chỉ trả về một số nguyên 1-10, không giải thích.
-
-Đề bài: {problem}
-Bước: {step}
-Hướng suy luận: {thought}
-
-Điểm:"""
-
-VERIFY_PROMPT = """Kiểm tra lời giải sau có đúng không. Tìm lỗi logic, tính toán sai, hoặc giả định không hợp lệ. Nếu có lỗi, chỉ ra cụ thể. Nếu đúng, nói "ĐÚNG".
-
-Đề bài: {problem}
-Lời giải: {solution}
-
-Kết luận:"""
-
-SYNTHESIZE_PROMPT = """Từ các hướng suy luận đã kiểm tra, tổng hợp thành lời giải cuối cùng CHÍNH XÁC nhất. Trình bày rõ ràng, từng bước, nêu đáp án cuối cùng in đậm.
-
-Đề bài: {problem}
-Các hướng đã thử (kèm đánh giá): {branches_summary}
-
-Lời giải cuối cùng:"""
-
-# ============================================================================
-# TREE-OF-THOUGHTS AGENT
-# ============================================================================
 class ToTAgent:
-    def __init__(self, llm, num_branches=3, top_k=2, max_depth=5):
+    def __init__(self, llm, name):
         self.llm = llm
-        self.num_branches = max(1, int(num_branches))
-        self.top_k = max(1, int(top_k))
-        self.max_depth = max(1, int(max_depth))
+        self.name = name
         self.log = []
 
-    def _log(self, msg):
-        self.log.append(msg)
-
-    def _extract_number(self, text):
+    def _num(self, text):
         m = re.search(r'(\d+)', text)
-        if m:
-            n = int(m.group(1))
-            return max(1, min(10, n))
-        return 5
+        return max(1, min(10, int(m.group(1)))) if m else 5
 
-    def _parse_numbered_list(self, text):
+    def _parse(self, text):
         items = re.split(r'\n\s*(?=\d+[\.\)]\s*)', text)
         items = [re.sub(r'^\d+[\.\)]\s*', '', s).strip() for s in items]
         items = [s for s in items if s and len(s) > 3]
@@ -143,147 +126,106 @@ class ToTAgent:
         return items
 
     def solve(self, problem):
-        self.log = []
-        self._log(f"### 🎯 Đề bài: {problem}")
-
-        self._log("\n--- 🔬 BƯỚC 1: Phân tích đề bài & chia nhỏ ---")
-        decompose = self.llm.generate(DECOMPOSE_PROMPT.format(problem=problem),
-                                      system=SYSTEM_DEEP, temperature=0.3)
-        if is_error(decompose):
-            self._log(f"❌ Lỗi LLM khi phân tích: {decompose}")
-            return None, self.log
-        self._log(decompose)
-        steps = self._parse_numbered_list(decompose)[:self.max_depth]
-        if not steps:
-            steps = [problem]
-        self._log(f"→ Chia thành {len(steps)} bước con.")
-
-        self._log("\n--- 🌳 BƯỚC 2: Tree-of-Thoughts ---")
-        active_paths = [{"steps_done": [], "thoughts": [], "score": 0}]
-
-        for step_idx, step in enumerate(steps):
-            self._log(f"\n**Bước {step_idx+1}/{len(steps)}: {step}**")
+        self.log = [f"### {self.name}"]
+        dec = self.llm.generate(DECOMPOSE.format(problem=problem), system=SYSTEM_DEEP, temperature=0.3)
+        if is_error(dec): return None, [f"❌ Lỗi {self.name}: {dec}"]
+        steps = self._parse(dec)[:MAX_DEPTH] or [problem]
+        paths = [{"done": [], "thoughts": [], "score": 0}]
+        for step in steps:
             expanded = []
-            for path in active_paths:
-                done = " | ".join(path["steps_done"]) if path["steps_done"] else "(chưa có)"
-                prev = " | ".join(path["thoughts"]) if path["thoughts"] else "(chưa có)"
-                gen_prompt = GENERATE_PROMPT.format(
-                    problem=problem, done_steps=done, current_step=step,
-                    previous_thoughts=prev, n=self.num_branches)
-                gen_result = self.llm.generate(gen_prompt, system=SYSTEM_DEEP, temperature=0.8)
-                if is_error(gen_result):
-                    self._log(f"  ⚠️ Lỗi sinh hướng: {gen_result[:100]}")
-                    continue
-                branches = self._parse_numbered_list(gen_result)[:self.num_branches]
-                if not branches:
-                    branches = [gen_result[:500]]
-                self._log(f"  → Sinh {len(branches)} hướng suy luận.")
-
-                for i, branch in enumerate(branches):
-                    eval_result = self.llm.generate(
-                        EVALUATE_PROMPT.format(problem=problem, step=step, thought=branch),
-                        system="Chỉ trả về một số nguyên 1-10.", temperature=0.1)
-                    score = self._extract_number(eval_result)
-                    new_path = {
-                        "steps_done": path["steps_done"] + [step],
-                        "thoughts": path["thoughts"] + [branch],
-                        "score": path["score"] + score
-                    }
-                    expanded.append((score, branch, new_path))
-                    self._log(f"    Hướng {i+1} (điểm {score}/10): {branch[:120]}...")
-
-            if not expanded:
-                self._log("  ❌ Không sinh được hướng nào, dừng sớm.")
-                break
+            for p in paths:
+                gen = self.llm.generate(GENERATE.format(
+                    problem=problem, n=MAX_BRANCHES,
+                    done=" | ".join(p["done"]) or "(chưa có)", step=step,
+                    prev=" | ".join(p["thoughts"]) or "(chưa có)"),
+                    system=SYSTEM_DEEP, temperature=0.8)
+                if is_error(gen): continue
+                branches = self._parse(gen)[:MAX_BRANCHES] or [gen[:500]]
+                for b in branches:
+                    ev = self.llm.generate(EVALUATE.format(problem=problem, step=step, thought=b),
+                        system="Chỉ trả về số 1-10.", temperature=0.1)
+                    sc = self._num(ev)
+                    expanded.append((sc, b, {"done": p["done"]+[step], "thoughts": p["thoughts"]+[b], "score": p["score"]+sc}))
+            if not expanded: break
             expanded.sort(key=lambda x: -x[0])
-            active_paths = [p for _, _, p in expanded[:self.top_k]]
-            self._log(f"  → Giữ {len(active_paths)} hướng tốt nhất.")
-
-        self._log("\n--- 🛡️ BƯỚC 3: Self-Verification ---")
-        best_solution = None
-        best_score = -1
-        for idx, path in enumerate(active_paths):
-            solution = "\n".join(path["thoughts"])
-            verify = self.llm.generate(VERIFY_PROMPT.format(problem=problem, solution=solution),
-                                       system=SYSTEM_DEEP, temperature=0.2)
-            self._log(f"Kiểm tra hướng {idx+1} (tổng điểm {path['score']}): {verify[:200]}")
-            if "ĐÚNG" in verify.upper() and path["score"] > best_score:
-                best_solution = solution
-                best_score = path["score"]
-
-        if not best_solution and active_paths:
-            best_solution = "\n".join(active_paths[0]["thoughts"])
-            self._log("⚠️ Không hướng nào ĐÚNG, chọn hướng điểm cao nhất.")
-
-        self._log("\n--- ✅ BƯỚC 4: Tổng hợp lời giải cuối ---")
-        summary = "\n\n".join([f"Hướng {i+1} (tổng điểm {p['score']}):\n" + "\n".join(p["thoughts"])
-                               for i, p in enumerate(active_paths)])
-        final = self.llm.generate(SYNTHESIZE_PROMPT.format(problem=problem, branches_summary=summary),
-                                  system=SYSTEM_DEEP, temperature=0.3)
-        if is_error(final):
-            final = best_solution or "Không thể tổng hợp lời giải."
-        self._log(f"\n## 🎉 LỜI GIẢI CUỐI CÙNG:\n\n{final}")
+            paths = [p for _,_,p in expanded[:MAX_TOP_K]]
+        best = None
+        for p in paths:
+            sol = "\n".join(p["thoughts"])
+            v = self.llm.generate(VERIFY.format(problem=problem, solution=sol), system=SYSTEM_DEEP, temperature=0.2)
+            if "ĐÚNG" in v.upper() and (best is None or p["score"] > best["score"]):
+                best = p
+        if best is None and paths: best = paths[0]
+        if best is None: return None, self.log
+        summary = "\n\n".join("\n".join(p["thoughts"]) for p in paths)
+        final = self.llm.generate(SYNTHESIZE.format(problem=problem, branches=summary), system=SYSTEM_DEEP, temperature=0.3)
+        if is_error(final): final = "\n".join(best["thoughts"])
         return final, self.log
 
-# ============================================================================
-# STREAMLIT UI
-# ============================================================================
+def solve_ensemble(problem, groq_key, gemini_key, openrouter_key):
+    backends = {}
+    if groq_key: backends["Groq Llama 70B"] = GroqBackend(groq_key)
+    if gemini_key: backends["Gemini 1.5 Flash"] = GeminiBackend(gemini_key)
+    if openrouter_key: backends["OpenRouter Llama 70B"] = OpenRouterBackend(openrouter_key)
+    if not backends: return None, {}, {}, "Chưa nhập API key nào!"
+    results, logs = {}, {}
+    def worker(name, llm):
+        agent = ToTAgent(llm, name)
+        ans, log = agent.solve(problem)
+        results[name] = ans
+        logs[name] = log
+    threads = [threading.Thread(target=worker, args=(n, b)) for n, b in backends.items()]
+    for t in threads: t.start()
+    for t in threads: t.join()
+    valid = {n: results[n] for n in results if results[n] and not is_error(results[n])}
+    if not valid: return None, logs, results, "Tất cả model đều lỗi. Kiểm tra API key."
+    judge_name = "Groq Llama 70B" if "Groq Llama 70B" in valid else list(valid.keys())[0]
+    judge = backends[judge_name]
+    names = list(valid.keys())
+    judge_prompt = JUDGE.format(problem=problem,
+        sol1=valid.get(names[0], "(lỗi)"),
+        sol2=valid.get(names[1], "(không có)") if len(names)>1 else "(không có)",
+        sol3=valid.get(names[2], "(không có)") if len(names)>2 else "(không có)")
+    final = judge.generate(judge_prompt, system=SYSTEM_DEEP, temperature=0.3, max_tokens=4000)
+    if is_error(final): final = list(valid.values())[0]
+    return final, logs, results, f"Đã giải bằng {len(valid)}/{len(backends)} model: {', '.join(valid.keys())} | Judge: {judge_name}"
+
 def main():
-    st.set_page_config(page_title="🧠 Deep Reasoning Agent", layout="wide")
-    st.title("🧠 Deep Reasoning Agent — Tree-of-Thoughts + Self-Verification")
-    st.caption("Agent suy luận sâu: sinh nhiều hướng → đánh giá → cắt tỉa → tự kiểm tra → tự sửa lỗi.")
-
+    st.set_page_config(page_title="🧠 Ensemble Free", layout="wide")
+    st.title("🧠 Ensemble Deep Reasoning Agent — HOÀN TOÀN MIỄN PHÍ")
+    st.caption("Groq Llama 3.1 70B + Gemini 1.5 Flash + OpenRouter Llama 70B cùng giải. Mức suy luận MAX cố định.")
     with st.sidebar:
-        st.header("⚙️ Cấu hình")
-        provider = st.selectbox("LLM Backend", ["Ollama (local)", "OpenAI API"])
-        llm = None
-        if provider == "Ollama (local)":
-            model = st.text_input("Ollama Model", value="llama3")
-            ollama_url = st.text_input("Ollama URL", value="http://localhost:11434/api/generate")
-            llm = OllamaBackend(model=model, url=ollama_url)
-        else:
-            api_key = st.text_input("OpenAI API Key", type="password")
-            model = st.selectbox("Model", ["gpt-4o", "gpt-4o-mini", "o1-mini", "o1-preview", "o3-mini"])
-            if api_key:
-                llm = OpenAIBackend(api_key=api_key, model=model)
-            else:
-                st.warning("Nhập API key để dùng OpenAI.")
-
+        st.header("🔑 API Keys (miễn phí)")
+        groq_key = st.text_input("Groq API Key", type="password", help="console.groq.com")
+        gemini_key = st.text_input("Google Gemini API Key", type="password", help="aistudio.google.com")
+        openrouter_key = st.text_input("OpenRouter API Key", type="password", help="openrouter.ai")
         st.divider()
-        num_branches = st.slider("Số hướng suy luận mỗi bước", 2, 5, 3)
-        top_k = st.slider("Giữ lại N hướng tốt nhất", 1, 3, 2)
-        max_depth = st.slider("Độ sâu tối đa", 2, 8, 5)
-
-    problem = st.text_area("📝 Nhập đề bài cần giải:", height=120,
-                           placeholder="Ví dụ: Một cửa hàng bán áo giá 200k, giảm 20% còn rẻ hơn 50k so với giá gốc. Tìm giá gốc?")
-
-    if st.button("🚀 Bắt đầu suy luận sâu", type="primary", use_container_width=True):
-        if not problem.strip():
-            st.error("Nhập đề bài trước!")
-        elif llm is None:
-            st.error("Cấu hình LLM backend trước!")
+        st.info(f"⚙️ MAX cố định:\n• {MAX_BRANCHES} hướng/bước\n• Giữ {MAX_TOP_K} nhánh\n• Độ sâu {MAX_DEPTH}")
+        if not (groq_key or gemini_key or openrouter_key):
+            st.warning("Nhập ít nhất 1 API key.")
+    problem = st.text_area("📝 Nhập đề bài:", height=120,
+        placeholder="Ví dụ: 3 chiếc hộp (táo/cam/hỗn hợp), tất cả nhãn sai. Mở 1 hộp, lấy 1 quả để xác định cả 3 hộp. Mở hộp nào?")
+    if st.button("🚀 Ensemble suy luận (free)", type="primary", use_container_width=True):
+        if not problem.strip(): st.error("Nhập đề bài!")
+        elif not (groq_key or gemini_key or openrouter_key): st.error("Nhập ít nhất 1 API key!")
         else:
-            agent = ToTAgent(llm, num_branches=num_branches, top_k=top_k, max_depth=max_depth)
-            with st.spinner("🧠 Đang suy luận sâu (có thể mất 1-5 phút)..."):
+            with st.spinner("🧠 3 model free đang cùng suy luận (1-3 phút)..."):
                 start = time.time()
-                final_answer, log = agent.solve(problem)
+                final, logs, results, status = solve_ensemble(problem, groq_key, gemini_key, openrouter_key)
                 elapsed = time.time() - start
-
-            if final_answer is None:
-                st.error("❌ Lỗi: Không thể kết nối LLM. Kiểm tra Ollama đang chạy hoặc API key.")
+            if final is None:
+                st.error(f"❌ {status}")
             else:
-                with st.expander("📋 Xem toàn bộ quá trình suy luận", expanded=False):
-                    for line in log:
-                        if line.startswith("###") or line.startswith("**"):
-                            st.markdown(line)
-                        elif line.startswith("---"):
-                            st.markdown(f"**{line.strip('- ')}**")
-                        else:
-                            st.text(line)
-
-                st.success(f"✅ Hoàn thành trong {elapsed:.1f}s")
-                st.subheader("🎉 Lời giải cuối cùng:")
-                st.markdown(final_answer)
+                st.success(f"✅ {status} | Thời gian: {elapsed:.1f}s")
+                with st.expander("📋 Xem lời giải từng model", expanded=False):
+                    for name in results:
+                        st.subheader(f"🤖 {name}")
+                        if logs.get(name):
+                            for line in logs[name]: st.text(line)
+                        r = results.get(name, "(lỗi)")
+                        st.markdown(r if not is_error(r) else f"❌ {r}")
+                st.subheader("🎉 Lời giải cuối cùng (judge tổng hợp):")
+                st.markdown(final)
 
 if __name__ == "__main__":
     main()
