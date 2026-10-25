@@ -93,7 +93,8 @@ class SmartPythonSandbox:
                 "print": print, "range": range, "len": len, "int": int, "str": str, "float": float,
                 "bool": bool, "list": list, "dict": dict, "set": set, "tuple": tuple,
                 "sum": sum, "min": min, "max": max, "abs": abs, "enumerate": enumerate,
-                "zip": zip, "map": map, "filter": filter, "Exception": Exception
+                "zip": zip, "map": map, "filter": filter, "Exception": Exception,
+                "__import__": __import__  # <--- Bổ sung dòng này để cho phép import thư viện trong sandbox
             }
         }
         try:
@@ -114,16 +115,6 @@ class SmartPythonSandbox:
             self.safe_globals["sympy"] = sympy
         except ImportError:
             pass
-
-    def execute(self, code):
-        output = io.StringIO()
-        error = None
-        try:
-            with contextlib.redirect_stdout(output):
-                exec(code, self.safe_globals)
-        except Exception as e:
-            error = traceback.format_exc()
-        return output.getvalue(), error
 
 # ==========================================
 # TẦNG 3: INTENT ROUTER & PLANNER
