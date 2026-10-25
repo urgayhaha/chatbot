@@ -4,3 +4,6 @@ google-genai
 streamlit
 z3-solver
 sympy
+streamlit
+requests
+beautifulsoup4
