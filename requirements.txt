@@ -1,3 +1,6 @@
 groq
 streamlit
 google-genai
+streamlit
+z3-solver
+sympy
