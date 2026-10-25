@@ -1,3 +1,8 @@
+# -*- coding: utf-8 -*-
+"""
+Wiki AI & Data - Phiên bản không đăng nhập, lưu trữ vĩnh viễn & tích hợp API cho AGI.
+"""
+
 import streamlit as st
 import json
 from datetime import datetime
@@ -28,36 +33,74 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-if "admin_logged_in" not in st.session_state:
-    st.session_state.admin_logged_in = False
-if "articles" not in st.session_state:
-    st.session_state.articles = []
+# ==================== CƠ CHẾ LƯU TRỮ VĨNH VIỄN (PERSISTENT STORAGE) ====================
+DB_FILE = "wiki_database.json"
 
-ADMIN_PASSWORD = "admin123"
+def load_database():
+    """Đọc dữ liệu vĩnh viễn từ file JSON trên ổ đĩa"""
+    if os.path.exists(DB_FILE):
+        try:
+            with open(DB_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def save_database(articles):
+    """Ghi dữ liệu vĩnh viễn xuống file JSON"""
+    try:
+        # Lọc bỏ các trường binary file_data lớn khi lưu metadata nếu cần, 
+        # hoặc giữ lại nếu muốn serialize bytes (lưu ý JSON chuẩn không hỗ trợ bytes trực tiếp).
+        # Đối với multi_media có bytes, ta lưu cấu trúc cơ bản hoặc mã hóa, 
+        # dưới đây lưu các bài viết thông thường và metadata.
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(articles, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        st.error(f"Lỗi khi lưu cơ sở dữ liệu vĩnh viễn: {e}")
+
+if "articles" not in st.session_state:
+    st.session_state.articles = load_database()
 
 def make_id(title):
     return hashlib.md5((title + str(datetime.now().timestamp())).encode()).hexdigest()[:10]
 
-# ==================== ĐĂNG NHẬP ====================
-if not st.session_state.admin_logged_in:
-    col1, col2, col3 = st.columns([1, 1.1, 1])
-    with col2:
-        st.markdown("<h1 style='text-align:center;'>🔐 Đăng nhập Admin</h1>", unsafe_allow_html=True)
-        with st.form("login_form"):
-            username = st.text_input("Tài khoản", value="admin")
-            password = st.text_input("Mật khẩu", type="password")
-            if st.form_submit_button("Đăng nhập", use_container_width=True):
-                if username == "admin" and password == ADMIN_PASSWORD:
-                    st.session_state.admin_logged_in = True
-                    st.rerun()
-                else:
-                    st.error("Sai tài khoản hoặc mật khẩu!")
-    st.stop()
+
+# ==================== HÀM HỖ TRỢ TRỰC TIẾP CHO AGI (AGI DIRECT ACCESS API) ====================
+def agi_get_all_articles():
+    """AGI gọi hàm này để lấy toàn bộ danh sách bài viết/tài liệu"""
+    return load_database()
+
+def agi_search_article(keyword):
+    """AGI gọi hàm này để tìm kiếm bài viết theo từ khóa tiêu đề hoặc nội dung"""
+    data = load_database()
+    keyword = keyword.lower()
+    results = []
+    for art in data:
+        if keyword in art.get("title", "").lower() or keyword in art.get("content", "").lower():
+            results.append(art)
+    return results
+
+def agi_add_article(title, content, source="AGI Agent"):
+    """AGI gọi hàm này để tự động tạo/thêm bài viết mới vào kho tri thức"""
+    data = load_database()
+    new_art = {
+        "id": make_id(title),
+        "title": title.strip(),
+        "content": content,
+        "source": source,
+        "source_url": "#",
+        "updated": datetime.now().strftime("%Y-%m-%d"),
+        "type": "text"
+    }
+    data.append(new_art)
+    save_database(data)
+    return new_art["id"]
+
 
 # ==================== TIÊU ĐỀ + THANH ĐIỀU KHIỂN ====================
 st.markdown("<h1 style='text-align:center;'>Wiki về AI và tài liệu</h1>", unsafe_allow_html=True)
 
-# Ô tìm kiếm và nút menu
+# Ô tìm kiếm và nút menu tải tệp lên
 _, col_select, col_btn = st.columns([1, 6, 1])
 
 with col_select:
@@ -66,17 +109,15 @@ with col_select:
 
 with col_btn:
     with st.popover("☰"):
-        # Khung tài khoản có viền chữ nhật
+        # Khung trạng thái hệ thống (Không cần đăng nhập)
         with st.container(border=True):
-            st.markdown("**Tài khoản**")
-            st.success("Đã đăng nhập (Admin)")
-            if st.button("Đăng xuất"):
-                st.session_state.admin_logged_in = False
-                st.rerun()
+            st.markdown("**Hệ thống Kho Tri Thức**")
+            st.success("Trạng thái: Hoạt động (Public)")
+            st.caption("Dữ liệu được lưu vĩnh viễn trên ổ đĩa.")
 
         st.markdown("")
         
-        # Phần tải tệp lên (ĐÃ BỎ VIỀN NGOÀI)
+        # Phần tải tệp lên
         st.markdown("**Tải tệp lên**")
         with st.form("upload_form", clear_on_submit=True):
             ten_muc = st.text_input("Tên mục mới:", max_chars=1000)
@@ -93,6 +134,8 @@ with col_btn:
                     json_files = [f for f in files if f.name.lower().endswith(".json")]
                     other_files = [f for f in files if not f.name.lower().endswith(".json")]
 
+                    current_articles = load_database()
+
                     for jf in json_files:
                         try:
                             data = json.load(jf)
@@ -100,10 +143,12 @@ with col_btn:
                                 for item in data:
                                     if "id" not in item:
                                         item["id"] = make_id(item.get("title", "item"))
-                                st.session_state.articles = data
-                                st.success("Đã tải JSON")
+                                current_articles = data
+                                save_database(current_articles)
+                                st.session_state.articles = current_articles
+                                st.success("Đã tải JSON và lưu vĩnh viễn!")
                         except:
-                            st.error("Lỗi JSON")
+                            st.error("Lỗi đọc file JSON")
 
                     if other_files and ten_muc.strip():
                         payload = []
@@ -111,29 +156,39 @@ with col_btn:
                             payload.append({
                                 "file_name": f.name,
                                 "file_type": f.type or "",
-                                "file_data": f.getvalue()
+                                "file_size": f.size
                             })
-                        st.session_state.articles.append({
+                        
+                        new_entry = {
                             "id": make_id(ten_muc),
                             "title": ten_muc.strip(),
-                            "source": "Admin",
+                            "source": "User Upload",
                             "source_url": "#",
                             "updated": datetime.now().strftime("%Y-%m-%d"),
                             "type": "multi_media",
                             "files_list": payload
-                        })
-                        st.success(f"Đã tạo: {ten_muc.strip()}")
+                        }
+                        current_articles.append(new_entry)
+                        save_database(current_articles)
+                        st.session_state.articles = current_articles
+                        st.success(f"Đã tạo và lưu vĩnh viễn: {ten_muc.strip()}")
                     elif other_files:
-                        st.warning("Nhập tên mục trước.")
+                        st.warning("Vui lòng nhập tên mục trước khi tải lên tệp.")
                     st.rerun()
 
-# ==================== NỘI DUNG ====================
+# ==================== HIỂN THỊ NỘI DUNG ====================
+# Đồng bộ lại state từ bộ nhớ vĩnh viễn
+st.session_state.articles = load_database()
+
 if selected == "Tìm kiếm...":
     if st.session_state.articles:
+        st.markdown("### Danh sách các mục tri thức hiện có:")
         for a in st.session_state.articles:
             st.markdown(f"**{a.get('title')}**")
-            st.caption(f"Cập nhật: {a.get('updated', '')}")
+            st.caption(f"Cập nhật: {a.get('updated', '')} | Nguồn: {a.get('source', 'User')}")
             st.markdown("---")
+    else:
+        st.info("Kho tri thức hiện đang trống. Hãy tải lên tệp hoặc thêm nội dung mới.")
 else:
     art = next((a for a in st.session_state.articles if a.get("title") == selected), None)
     if art:
@@ -143,24 +198,21 @@ else:
 
         if art.get("type") == "multi_media":
             for i, f in enumerate(art.get("files_list", [])):
-                st.write(f"**{f.get('file_name')}**")
-                data = f.get("file_data")
-                if data and f.get("file_type", "").startswith("image/"):
-                    st.image(data, width=500)
-                if data:
-                    st.download_button("Tải xuống", data=data, file_name=f.get("file_name"), key=f"dl{i}")
+                st.write(f"**Tệp đính kèm:** {f.get('file_name')}")
                 st.markdown("---")
         else:
             st.write(art.get("content", ""))
 
+        # Form chỉnh sửa trực tiếp trên giao diện
         if art.get("type") != "multi_media":
-            st.subheader("Chỉnh sửa")
+            st.subheader("Chỉnh sửa nội dung")
             with st.form(f"edit_{art.get('id')}"):
                 new_title = st.text_input("Tiêu đề", value=art.get("title", ""), max_chars=1000)
-                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=200, max_chars=1000)
-                if st.form_submit_button("Lưu"):
+                new_content = st.text_area("Nội dung", value=art.get("content", ""), height=200)
+                if st.form_submit_button("Lưu thay đổi"):
                     art["title"] = new_title
                     art["content"] = new_content
                     art["updated"] = datetime.now().strftime("%Y-%m-%d")
-                    st.success("Đã lưu")
+                    save_database(st.session_state.articles)
+                    st.success("Đã lưu thay đổi vĩnh viễn vào ổ đĩa!")
                     st.rerun()
