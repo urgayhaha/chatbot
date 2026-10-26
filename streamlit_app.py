@@ -312,19 +312,16 @@ with st.expander("Cách bật lưu vĩnh viễn trên Streamlit Cloud"):
         """
 1. Tạo một repo GitHub trống (có nhánh `main`).
 2. Tạo Personal Access Token có quyền **ghi Contents** của repo đó.
-3. Mở app trên Streamlit Cloud → **Settings → Secrets** và dán:
-
-```toml
-GITHUB_TOKEN = "github_pat_xxxx"
-GITHUB_REPO = "username/ten-repo"
-GITHUB_BRANCH = "main"
-```
-
-4. Bấm **Save** rồi **Reboot app**.
-5. Thêm bài hoặc tải file. App tạo/cập nhật `wiki_database.json` trong repo.
-
-File lớn hơn ~350 KB không nhét vào JSON (GitHub Contents API chỉ ổn dưới ~1 MB cho cả database).
+3. Mở app trên Streamlit Cloud → **Settings → Secrets**.
+4. Dán 3 dòng bên dưới (không bọc trong khung code), bấm **Save**, rồi **Reboot app**.
+5. Thêm bài hoặc tải file. Trong repo phải xuất hiện `wiki_database.json`.
         """
+    )
+    st.text('GITHUB_TOKEN = "github_pat_xxxx"')
+    st.text('GITHUB_REPO = "username/ten-repo"')
+    st.text('GITHUB_BRANCH = "main"')
+    st.caption(
+        "File lớn hơn khoảng 350 KB không lưu nội dung. Cả database nên dưới khoảng 900 KB."
     )
 
 menu, _ = st.columns([1, 5])
