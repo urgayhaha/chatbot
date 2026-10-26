@@ -12,7 +12,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-from supabase import create_client, Client
+from supabase import create_client
 
 # ==========================================
 # 1. CẤU HÌNH HỆ THỐNG & GIỚI HẠN UPLOAD 1GB
@@ -182,7 +182,7 @@ class MultiSourceScraperBot:
 # ==========================================
 st.markdown("<h1 style='text-align:center;'>Wiki về AI và tài liệu</h1>", unsafe_allow_html=True)
 
-# Kiểm tra nhanh cấu hình Secrets
+# Kiểm tra cấu hình Secrets Supabase
 if not get_supabase_client():
     st.error("⚠️ **Chưa cấu hình Supabase Secrets!** Vui lòng thiết lập `SUPABASE_URL` và `SUPABASE_KEY` trong phần Settings -> Secrets của Streamlit Cloud.")
 
