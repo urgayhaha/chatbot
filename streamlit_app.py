@@ -49,7 +49,6 @@ def get_supabase_client():
         key = st.secrets.get("SUPABASE_KEY")
         if not url or not key:
             return None
-        # Tự động loại bỏ khoảng trắng hoặc dấu / dư ở cuối URL để tránh lỗi kết nối httpx
         url = url.strip().rstrip('/')
         return create_client(url, key)
     except Exception as e:
@@ -119,4 +118,181 @@ def agi_add_article(title, content, source="AGI Agent"):
 class MultiSourceScraperBot:
     def __init__(self):
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+        }
+
+    def scrape_web_page(self, url):
+        try:
+            parsed_url = urlparse(url)
+            domain_source = parsed_url.netloc if parsed_url.netloc else "Web ngoài"
+
+            response = requests.get(url, headers=self.headers, timeout=10)
+            if response.status_code == 200:
+                soup = BeautifulSoup(response.text, "html.parser")
+                title_tag = soup.find("h1") or soup.find("title")
+                title = title_tag.get_text(strip=True) if title_tag else "Bài viết không tiêu đề"
+                
+                paragraphs = soup.find_all("p")
+                content = "\n\n".join([p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 20])
+                
+                if not content:
+                    content = "Không thể trích xuất nội dung chi tiết từ trang này."
+
+                return {
+                    "title": title[:150],
+                    "content": content,
+                    "source": domain_source,
+                    "source_url": url
+                }
+        except Exception as e:
+            print(f"Lỗi cào dữ liệu từ {url}: {e}")
+        return None
+
+    def run_multi_source_crawl(self, url_list):
+        db = load_database()
+        added_count = 0
+        client = get_supabase_client()
+
+        for url in url_list:
+            url = url.strip()
+            if not url:
+                continue
+            
+            if any(item.get("source_url") == url for item in db):
+                continue
+
+            scraped_data = self.scrape_web_page(url)
+            if scraped_data and client:
+                new_entry = {
+                    "id": make_id(scraped_data["title"]),
+                    "title": scraped_data["title"],
+                    "content": scraped_data["content"],
+                    "source": scraped_data["source"],
+                    "source_url": scraped_data["source_url"],
+                    "updated": datetime.now().strftime("%Y-%m-%d"),
+                    "type": "text",
+                    "files_list": []
+                }
+                client.table("wiki_knowledge").upsert(new_entry).execute()
+                added_count += 1
+
+        return added_count
+
+# ==========================================
+# 5. GIAO DIỆN WEB STREAMLIT
+# ==========================================
+st.markdown("<h1 style='text-align:center;'>Wiki về AI và tài liệu</h1>", unsafe_allow_html=True)
+
+# Kiểm tra cấu hình Secrets Supabase
+if not get_supabase_client():
+    st.error("⚠️ **Chưa cấu hình Supabase Secrets!** Vui lòng thiết lập `SUPABASE_URL` và `SUPABASE_KEY` trong phần Settings -> Secrets của Streamlit Cloud.")
+
+# Thanh menu popover ở góc phải trên cùng
+_, col_btn = st.columns([11, 1])
+with col_btn:
+    with st.popover("☰"):
+        st.markdown("**Tải tệp lên**")
+        with st.form("upload_form", clear_on_submit=True):
+            ten_muc = st.text_input("Tên mục mới:", max_chars=1000)
+            
+            files = st.file_uploader(
+                "upload your file",
+                accept_multiple_files=True,
+                label_visibility="collapsed"
+            )
+            st.markdown("<p style='font-size:0.8em; color:#666; margin-top:-5px; margin-bottom:10px;'>The Maximum Limit is 1 GB per file</p>", unsafe_allow_html=True)
+            
+            if st.form_submit_button("Tải lên"):
+                if files:
+                    json_files = [f for f in files if f.name.lower().endswith(".json")]
+                    other_files = [f for f in files if not f.name.lower().endswith(".json")]
+
+                    for jf in json_files:
+                        try:
+                            data = json.load(jf)
+                            if isinstance(data, list):
+                                for item in data:
+                                    if "id" not in item:
+                                        item["id"] = make_id(item.get("title", "item"))
+                                    if "files_list" not in item:
+                                        item["files_list"] = []
+                                save_database(data)
+                                st.success("Đã tải JSON và đồng bộ Supabase!")
+                        except:
+                            st.error("Lỗi đọc file JSON")
+
+                    if other_files and ten_muc.strip():
+                        payload = []
+                        for f in other_files:
+                            payload.append({
+                                "file_name": f.name,
+                                "file_type": f.type or "",
+                                "file_size": f.size
+                            })
+                        
+                        new_entry = {
+                            "id": make_id(ten_muc),
+                            "title": ten_muc.strip(),
+                            "source": "User Upload",
+                            "source_url": "#",
+                            "updated": datetime.now().strftime("%Y-%m-%d"),
+                            "type": "multi_media",
+                            "files_list": payload
+                        }
+                        save_database([new_entry])
+                        st.success(f"Đã tạo và đồng bộ Supabase: {ten_muc.strip()}")
+                    elif other_files:
+                        st.warning("Vui lòng nhập tên mục trước khi tải lên.")
+                    st.rerun()
+
+        st.markdown("---")
+        st.markdown("**🤖 Bot Cào Dữ Liệu Tự Động**")
+        with st.form("scraper_form"):
+            urls_input = st.text_area("Nhập URL nguồn (mỗi dòng 1 URL):", placeholder="https://example.com/bai-viet-1")
+            if st.form_submit_button("Chạy Bot Cào & Lưu"):
+                if urls_input.strip():
+                    url_list = urls_input.split("\n")
+                    bot = MultiSourceScraperBot()
+                    with st.spinner("Bot đang đi cào dữ liệu từ các nguồn..."):
+                        count = bot.run_multi_source_crawl(url_list)
+                    st.success(f"Đã cào thành công và đồng bộ vĩnh viễn {count} mục lên Supabase!")
+                    st.rerun()
+                else:
+                    st.warning("Vui lòng nhập ít nhất một URL hợp lệ.")
+
+# ==========================================
+# 6. HIỂN THỊ DANH SÁCH DẠNG MỤC MỞ RỘNG (EXPANDER)
+# ==========================================
+current_articles = load_database()
+
+st.markdown("---")
+if current_articles:
+    st.markdown("### 📚 Danh sách các mục tri thức:")
+    for idx, art in enumerate(current_articles):
+        title = art.get('title', 'Không tiêu đề')
+        source = art.get('source', 'Không rõ')
+        updated = art.get('updated', '')
+        
+        with st.expander(f"📖 {title} — [Nguồn: {source}] (Cập nhật: {updated})"):
+            if art.get("type") == "multi_media":
+                for f in art.get("files_list", []):
+                    st.write(f"**Tệp đính kèm:** {f.get('file_name')} ({f.get('file_size', 0)} bytes)")
+                    st.markdown("---")
+            else:
+                st.write(art.get("content", ""))
+
+            if art.get("type") != "multi_media":
+                st.markdown("---")
+                st.subheader("Chỉnh sửa nội dung mục này")
+                with st.form(f"edit_{art.get('id')}_{idx}"):
+                    new_title = st.text_input("Tiêu đề", value=art.get("title", ""), max_chars=1000)
+                    new_content = st.text_area("Nội dung", value=art.get("content", ""), height=150)
+                    if st.form_submit_button("Lưu thay đổi"):
+                        art["title"] = new_title
+                        art["content"] = new_content
+                        art["updated"] = datetime.now().strftime("%Y-%m-%d")
+                        save_database([art])
+                        st.success("Đã lưu và đồng bộ thay đổi lên Supabase!")
+                        st.rerun()
+else:
+    st.info("Kho tri thức hiện đang trống. Hãy nhấn vào biểu tượng menu (☰) ở góc trên bên phải để tải tệp lên hoặc sử dụng Bot Cào dữ liệu.")
