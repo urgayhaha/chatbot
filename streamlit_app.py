@@ -7,8 +7,8 @@ lên GitHub rồi đọc lại, nên dữ liệu còn sau khi app ngủ hoặc k
 
 Secrets (Streamlit Cloud → Settings → Secrets), không dán token vào code:
 
-GITHUB_TOKEN = "github_pat_..."
-GITHUB_REPO = "username/ten-repo"
+GITHUB_TOKEN = "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"
+GITHUB_REPO = "urgayhaha/chatbot"
 GITHUB_BRANCH = "main"
 
 Token: GitHub → Settings → Developer settings → Fine-grained hoặc classic PAT,
