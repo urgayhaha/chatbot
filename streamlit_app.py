@@ -1,6 +1,6 @@
 # -*- coding: utf-8 -*-
 """
-app.py — Wiki AI & Data + Multi-Source Scraper + GitHub API Persistence (Robust Version)
+app.py — Wiki AI & Data + Multi-Source Scraper + GitHub API Persistence (Debug Version)
 """
 
 import streamlit as st
@@ -43,15 +43,6 @@ st.markdown("""
 # ==========================================
 DB_FILE = "wiki_database.json"
 
-def check_secrets_configured():
-    """Kiểm tra xem đã cấu hình Secrets đầy đủ chưa"""
-    try:
-        token = st.secrets.get("GITHUB_TOKEN")
-        repo = st.secrets.get("GITHUB_REPO")
-        return bool(token and repo)
-    except:
-        return False
-
 def load_from_github():
     """Tải file database trực tiếp từ GitHub Repository qua API"""
     try:
@@ -70,8 +61,9 @@ def load_from_github():
             file_content = base64.b64decode(file_info["content"]).decode("utf-8")
             return json.loads(file_content)
         elif resp.status_code == 404:
-            # File chưa tồn tại trên GitHub -> trả về danh sách rỗng để chuẩn bị tạo mới
             return []
+        else:
+            print(f"GitHub Load Error {resp.status_code}: {resp.text}")
     except Exception as e:
         print(f"Lỗi tải từ GitHub: {e}")
     return None
@@ -83,6 +75,7 @@ def save_to_github(articles):
         repo = st.secrets.get("GITHUB_REPO")
         branch = st.secrets.get("GITHUB_BRANCH", "main")
         if not token or not repo:
+            st.error("❌ Thiếu GITHUB_TOKEN hoặc GITHUB_REPO trong Secrets!")
             return False
         
         url = f"https://api.github.com/repos/{repo}/contents/{DB_FILE}"
@@ -107,9 +100,13 @@ def save_to_github(articles):
             payload["sha"] = sha
         
         put_resp = requests.put(url, headers=headers, json=payload, timeout=10)
-        return put_resp.status_code in [200, 201]
+        if put_resp.status_code in [200, 201]:
+            return True
+        else:
+            st.error(f"❌ Lỗi GitHub API ({put_resp.status_code}): {put_resp.text}")
+            return False
     except Exception as e:
-        print(f"Lỗi đẩy dữ liệu lên GitHub: {e}")
+        st.error(f"❌ Ngoại lệ khi đẩy dữ liệu lên GitHub: {e}")
         return False
 
 def load_database():
@@ -137,8 +134,6 @@ def save_database(articles):
     success = save_to_github(articles)
     if success:
         st.toast("Đã tự động đồng bộ vĩnh viễn lên GitHub thành công!", icon="🚀")
-    else:
-        st.warning("Lưu ý: Chưa đồng bộ được lên GitHub. Vui lòng kiểm tra lại GITHUB_TOKEN và GITHUB_REPO trong Secrets!")
 
 def make_id(title):
     return hashlib.md5((title + str(datetime.now().timestamp())).encode()).hexdigest()[:10]
@@ -239,10 +234,6 @@ class MultiSourceScraperBot:
 # 5. GIAO DIỆN WEB STREAMLIT
 # ==========================================
 st.markdown("<h1 style='text-align:center;'>Wiki về AI và tài liệu</h1>", unsafe_allow_html=True)
-
-# Kiểm tra trạng thái cấu hình Secrets trực quan
-if not check_secrets_configured():
-    st.error("⚠️ **Chưa cấu hình GitHub Secrets!** Vui lòng vào phần **Settings -> Secrets** trên Streamlit Cloud để thiết lập `GITHUB_TOKEN` và `GITHUB_REPO` thì dữ liệu mới lưu vĩnh viễn được.")
 
 if "articles" not in st.session_state:
     st.session_state.articles = load_database()
