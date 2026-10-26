@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-app.py — Wiki AI & Data + Multi-Source Scraper + Supabase Persistent Backend
-Hệ thống kho tri thức kết nối cơ sở dữ liệu đám mây Supabase vĩnh viễn.
+app.py — Wiki AI & Data + Multi-Source Scraper + GitHub JSON Persistent Backend
+Hệ thống kho tri thức lưu trữ vĩnh viễn trên GitHub Cloud, chống mọi lỗi kết nối mạng.
 """
 
 import streamlit as st
@@ -12,7 +12,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
-from supabase import create_client
+base64 = __import__('base64')
 
 # ==========================================
 # 1. CẤU HÌNH HỆ THỐNG & GIỚI HẠN UPLOAD 1GB
@@ -40,46 +40,62 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. KẾT NỐI SUPABASE & QUẢN LÝ DỮ LIỆU
+# 2. KẾT NỐI GITHUB CLOUD & QUẢN LÝ DỮ LIỆU
 # ==========================================
-def get_supabase_client():
-    """Khởi tạo kết nối tới Supabase Database"""
-    try:
-        url = st.secrets.get("SUPABASE_URL")
-        key = st.secrets.get("SUPABASE_KEY")
-        if not url or not key:
-            return None
-        url = url.strip().rstrip('/')
-        return create_client(url, key)
-    except Exception as e:
-        print(f"Lỗi khởi tạo Supabase: {e}")
-        return None
+GITHUB_REPO = st.secrets.get("GITHUB_REPO", "urgayhaha/chatbot")  # Repo của sếp
+GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
+JSON_FILE_PATH = "wiki_database.json"
 
 def load_database():
-    """Tải toàn bộ kho tri thức từ Supabase"""
-    client = get_supabase_client()
-    if not client:
-        return []
+    """Tải toàn bộ kho tri thức từ GitHub Cloud JSON"""
+    url = f"https://raw.githubusercontent.com/{GITHUB_REPO}/main/{JSON_FILE_PATH}"
     try:
-        response = client.table("wiki_knowledge").select("*").execute()
-        return response.data if response.data else []
+        response = requests.get(url, timeout=10)
+        if response.status_code == 200:
+            data = response.json()
+            return data if isinstance(data, list) else []
     except Exception as e:
-        print(f"Lỗi tải dữ liệu từ Supabase: {e}")
-        return []
+        print(f"Lỗi tải dữ liệu từ GitHub: {e}")
+    return []
 
 def save_database(articles):
-    """Lưu và cập nhật danh sách bài viết lên Supabase"""
-    client = get_supabase_client()
-    if not client:
-        st.error("❌ Chưa cấu hình SUPABASE_URL hoặc SUPABASE_KEY trong Secrets!")
+    """Lưu và đồng bộ danh sách bài viết lên GitHub Cloud"""
+    if not GITHUB_TOKEN:
+        st.error("❌ Chưa cấu hình GITHUB_TOKEN trong Secrets!")
         return False
+    
+    url = f"https://api.github.com/repos/{GITHUB_REPO}/contents/{JSON_FILE_PATH}"
+    headers = {
+        "Authorization": f"Bearer {GITHUB_TOKEN}",
+        "Accept": "application/vnd.github+json"
+    }
+    
     try:
-        for art in articles:
-            client.table("wiki_knowledge").upsert(art).execute()
-        st.toast("Đã đồng bộ vĩnh viễn lên Supabase thành công!", icon="🚀")
-        return True
+        # Lấy sha hiện tại của file (nếu có)
+        r = requests.get(url, headers=headers)
+        sha = r.json().get("sha") if r.status_code == 200 else None
+        
+        # Chuẩn bị nội dung mã hóa base64
+        content_str = json.dumps(articles, ensure_ascii=False, indent=4)
+        content_b64 = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
+        
+        payload = {
+            "message": "Update wiki database via Streamlit Cloud",
+            "content": content_b64,
+            "branch": "main"
+        }
+        if sha:
+            payload["sha"] = sha
+            
+        res = requests.put(url, headers=headers, json=payload)
+        if res.status_code in [200, 201]:
+            st.toast("Đã đồng bộ vĩnh viễn lên GitHub Cloud thành công!", icon="🚀")
+            return True
+        else:
+            st.error(f"❌ Lỗi lưu GitHub: {res.text}")
+            return False
     except Exception as e:
-        st.error(f"❌ Lỗi lưu dữ liệu lên Supabase: {e}")
+        st.error(f"❌ Lỗi kết nối GitHub API: {e}")
         return False
 
 def make_id(title):
@@ -97,7 +113,7 @@ def agi_search_article(keyword):
     return [art for art in data if keyword in art.get("title", "").lower() or keyword in art.get("content", "").lower()]
 
 def agi_add_article(title, content, source="AGI Agent"):
-    client = get_supabase_client()
+    db = load_database()
     new_art = {
         "id": make_id(title),
         "title": title.strip(),
@@ -108,8 +124,8 @@ def agi_add_article(title, content, source="AGI Agent"):
         "type": "text",
         "files_list": []
     }
-    if client:
-        client.table("wiki_knowledge").upsert(new_art).execute()
+    db.append(new_art)
+    save_database(db)
     return new_art["id"]
 
 # ==========================================
@@ -151,7 +167,6 @@ class MultiSourceScraperBot:
     def run_multi_source_crawl(self, url_list):
         db = load_database()
         added_count = 0
-        client = get_supabase_client()
 
         for url in url_list:
             url = url.strip()
@@ -162,7 +177,7 @@ class MultiSourceScraperBot:
                 continue
 
             scraped_data = self.scrape_web_page(url)
-            if scraped_data and client:
+            if scraped_data:
                 new_entry = {
                     "id": make_id(scraped_data["title"]),
                     "title": scraped_data["title"],
@@ -173,8 +188,11 @@ class MultiSourceScraperBot:
                     "type": "text",
                     "files_list": []
                 }
-                client.table("wiki_knowledge").upsert(new_entry).execute()
+                db.append(new_entry)
                 added_count += 1
+
+        if added_count > 0:
+            save_database(db)
 
         return added_count
 
@@ -182,10 +200,6 @@ class MultiSourceScraperBot:
 # 5. GIAO DIỆN WEB STREAMLIT
 # ==========================================
 st.markdown("<h1 style='text-align:center;'>Wiki về AI và tài liệu</h1>", unsafe_allow_html=True)
-
-# Kiểm tra cấu hình Secrets Supabase
-if not get_supabase_client():
-    st.error("⚠️ **Chưa cấu hình Supabase Secrets!** Vui lòng thiết lập `SUPABASE_URL` và `SUPABASE_KEY` trong phần Settings -> Secrets của Streamlit Cloud.")
 
 # Thanh menu popover ở góc phải trên cùng
 _, col_btn = st.columns([11, 1])
@@ -207,17 +221,15 @@ with col_btn:
                     json_files = [f for f in files if f.name.lower().endswith(".json")]
                     other_files = [f for f in files if not f.name.lower().endswith(".json")]
 
+                    db_data = load_database()
+
                     for jf in json_files:
                         try:
                             data = json.load(jf)
                             if isinstance(data, list):
-                                for item in data:
-                                    if "id" not in item:
-                                        item["id"] = make_id(item.get("title", "item"))
-                                    if "files_list" not in item:
-                                        item["files_list"] = []
-                                save_database(data)
-                                st.success("Đã tải JSON và đồng bộ Supabase!")
+                                db_data.extend(data)
+                                save_database(db_data)
+                                st.success("Đã tải JSON và đồng bộ GitHub Cloud!")
                         except:
                             st.error("Lỗi đọc file JSON")
 
@@ -239,8 +251,9 @@ with col_btn:
                             "type": "multi_media",
                             "files_list": payload
                         }
-                        save_database([new_entry])
-                        st.success(f"Đã tạo và đồng bộ Supabase: {ten_muc.strip()}")
+                        db_data.append(new_entry)
+                        save_database(db_data)
+                        st.success(f"Đã tạo và đồng bộ GitHub Cloud: {ten_muc.strip()}")
                     elif other_files:
                         st.warning("Vui lòng nhập tên mục trước khi tải lên.")
                     st.rerun()
@@ -255,7 +268,7 @@ with col_btn:
                     bot = MultiSourceScraperBot()
                     with st.spinner("Bot đang đi cào dữ liệu từ các nguồn..."):
                         count = bot.run_multi_source_crawl(url_list)
-                    st.success(f"Đã cào thành công và đồng bộ vĩnh viễn {count} mục lên Supabase!")
+                    st.success(f"Đã cào thành công và đồng bộ vĩnh viễn {count} mục lên GitHub Cloud!")
                     st.rerun()
                 else:
                     st.warning("Vui lòng nhập ít nhất một URL hợp lệ.")
@@ -291,8 +304,12 @@ if current_articles:
                         art["title"] = new_title
                         art["content"] = new_content
                         art["updated"] = datetime.now().strftime("%Y-%m-%d")
-                        save_database([art])
-                        st.success("Đã lưu và đồng bộ thay đổi lên Supabase!")
+                        # Cập nhật trong list
+                        for i, item in enumerate(current_articles):
+                            if item.get("id") == art.get("id"):
+                                current_articles[i] = art
+                        save_database(current_articles)
+                        st.success("Đã lưu và đồng bộ thay đổi lên GitHub Cloud!")
                         st.rerun()
 else:
     st.info("Kho tri thức hiện đang trống. Hãy nhấn vào biểu tượng menu (☰) ở góc trên bên phải để tải tệp lên hoặc sử dụng Bot Cào dữ liệu.")
