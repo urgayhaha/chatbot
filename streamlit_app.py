@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-app.py — Wiki AI & Data + Multi-Source Scraper + AGI Direct Access API
-Hệ thống kho tri thức vĩnh viễn, hiển thị dạng mục mở rộng, không có thanh tìm kiếm.
+app.py — Wiki AI & Data + Multi-Source Scraper + GitHub API Persistence
+Hệ thống kho tri thức tự động đồng bộ vĩnh viễn lên GitHub Repository.
 """
 
 import streamlit as st
@@ -12,6 +12,7 @@ import os
 import requests
 from bs4 import BeautifulSoup
 from urllib.parse import urlparse
+import base64
 
 # ==========================================
 # 1. CẤU HÌNH HỆ THỐNG & GIỚI HẠN UPLOAD 1GB
@@ -39,27 +40,100 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ==========================================
-# 2. CƠ CHẾ LƯU TRỮ VĨNH VIỄN (PERSISTENT STORAGE)
+# 2. CƠ CHẾ LƯU TRỮ VĨNH VIỄN QUA GITHUB API
 # ==========================================
 DB_FILE = "wiki_database.json"
 
+def load_from_github():
+    """Tải file database trực tiếp từ GitHub Repository qua API"""
+    try:
+        token = st.secrets.get("GITHUB_TOKEN")
+        repo = st.secrets.get("GITHUB_REPO")
+        branch = st.secrets.get("GITHUB_BRANCH", "main")
+        if not token or not repo:
+            return None
+        
+        url = f"https://api.github.com/repos/{repo}/contents/{DB_FILE}"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+        params = {"ref": branch}
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        if resp.status_code == 200:
+            file_info = resp.json()
+            file_content = base64.b64decode(file_info["content"]).decode("utf-8")
+            return json.loads(file_content)
+    except Exception as e:
+        print(f"Lỗi tải từ GitHub: {e}")
+    return None
+
+def save_to_github(articles):
+    """Tự động Commit & Push file database lên GitHub Repository qua API"""
+    try:
+        token = st.secrets.get("GITHUB_TOKEN")
+        repo = st.secrets.get("GITHUB_REPO")
+        branch = st.secrets.get("GITHUB_BRANCH", "main")
+        if not token or not repo:
+            return False
+        
+        url = f"https://api.github.com/repos/{repo}/contents/{DB_FILE}"
+        headers = {"Authorization": f"Bearer {token}", "Accept": "application/vnd.github+json"}
+        
+        # Lấy SHA hiện tại của file trên GitHub (nếu có) để update
+        params = {"ref": branch}
+        resp = requests.get(url, headers=headers, params=params, timeout=10)
+        sha = None
+        if resp.status_code == 200:
+            sha = resp.json().get("sha")
+        
+        # Mã hóa nội dung JSON sang Base64
+        json_str = json.dumps(articles, ensure_ascii=False, indent=2)
+        content_encoded = base64.b64encode(json_str.encode("utf-8")).decode("utf-8")
+        
+        payload = {
+            "message": f"Auto-update wiki database: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
+            "content": content_encoded,
+            "branch": branch
+        }
+        if sha:
+            payload["sha"] = sha
+        
+        put_resp = requests.put(url, headers=headers, json=payload, timeout=10)
+        return put_resp.status_code in [200, 201]
+    except Exception as e:
+        print(f"Lỗi đẩy dữ liệu lên GitHub: {e}")
+        return False
+
 def load_database():
-    """Đọc cơ sở dữ liệu vĩnh viễn từ file JSON cục bộ"""
+    """Ưu tiên tải từ GitHub, nếu lỗi hoặc chưa cấu hình thì đọc cache cục bộ"""
+    gh_data = load_from_github()
+    if gh_data is not None:
+        # Lưu cache xuống ổ đĩa cục bộ
+        with open(DB_FILE, "w", encoding="utf-8") as f:
+            json.dump(gh_data, f, ensure_ascii=False, indent=2)
+        return gh_data
+    
+    # Fallback đọc local
     if os.path.exists(DB_FILE):
         try:
             with open(DB_FILE, "r", encoding="utf-8") as f:
                 return json.load(f)
-        except Exception:
+        except:
             return []
     return []
 
 def save_database(articles):
-    """Ghi dữ liệu vĩnh viễn xuống ổ đĩa"""
+    """Lưu cục bộ và đồng thời đẩy thẳng lên GitHub API"""
     try:
         with open(DB_FILE, "w", encoding="utf-8") as f:
             json.dump(articles, f, ensure_ascii=False, indent=2)
     except Exception as e:
-        st.error(f"Lỗi khi lưu cơ sở dữ liệu: {e}")
+        st.error(f"Lỗi lưu file cục bộ: {e}")
+    
+    # Đồng bộ lên GitHub
+    success = save_to_github(articles)
+    if success:
+        st.toast("Đã tự động đồng bộ vĩnh viễn lên GitHub thành công!", icon="🚀")
+    else:
+        st.warning("Đã lưu cục bộ nhưng chưa đồng bộ được lên GitHub (Kiểm tra lại GITHUB_TOKEN và GITHUB_REPO trong Secrets).")
 
 def make_id(title):
     return hashlib.md5((title + str(datetime.now().timestamp())).encode()).hexdigest()[:10]
@@ -68,21 +142,14 @@ def make_id(title):
 # 3. HÀM API TRỰC TIẾP CHO AGI (AGI DIRECT ACCESS API)
 # ==========================================
 def agi_get_all_articles():
-    """AGI gọi hàm này để lấy toàn bộ danh sách bài viết/tài liệu"""
     return load_database()
 
 def agi_search_article(keyword):
-    """AGI gọi hàm này để tìm kiếm bài viết theo từ khóa tiêu đề hoặc nội dung"""
     data = load_database()
     keyword = keyword.lower()
-    results = []
-    for art in data:
-        if keyword in art.get("title", "").lower() or keyword in art.get("content", "").lower():
-            results.append(art)
-    return results
+    return [art for art in data if keyword in art.get("title", "").lower() or keyword in art.get("content", "").lower()]
 
 def agi_add_article(title, content, source="AGI Agent"):
-    """AGI gọi hàm này để tự động tạo/thêm bài viết mới vào kho tri thức"""
     data = load_database()
     new_art = {
         "id": make_id(title),
@@ -108,7 +175,6 @@ class MultiSourceScraperBot:
         }
 
     def scrape_web_page(self, url):
-        """Cào nội dung bài viết từ một URL cụ thể và lấy tên miền làm nguồn"""
         try:
             parsed_url = urlparse(url)
             domain_source = parsed_url.netloc if parsed_url.netloc else "Web ngoài"
@@ -136,7 +202,6 @@ class MultiSourceScraperBot:
         return None
 
     def run_multi_source_crawl(self, url_list):
-        """Chạy cào dữ liệu từ danh sách nhiều nguồn URL khác nhau"""
         db = load_database()
         added_count = 0
 
@@ -145,7 +210,6 @@ class MultiSourceScraperBot:
             if not url:
                 continue
             
-            # Tránh trùng lặp URL
             if any(item.get("source_url") == url for item in db):
                 continue
 
@@ -174,11 +238,10 @@ st.markdown("<h1 style='text-align:center;'>Wiki về AI và tài liệu</h1>", 
 if "articles" not in st.session_state:
     st.session_state.articles = load_database()
 
-# Thanh menu popover ở góc phải trên cùng (đã loại bỏ hoàn toàn phần thông tin trạng thái)
+# Thanh menu popover ở góc phải trên cùng
 _, col_btn = st.columns([11, 1])
 with col_btn:
     with st.popover("☰"):
-        # Phần tải tệp lên
         st.markdown("**Tải tệp lên**")
         with st.form("upload_form", clear_on_submit=True):
             ten_muc = st.text_input("Tên mục mới:", max_chars=1000)
@@ -206,7 +269,7 @@ with col_btn:
                                         item["id"] = make_id(item.get("title", "item"))
                                 db_data = data
                                 save_database(db_data)
-                                st.success("Đã tải JSON và lưu vĩnh viễn!")
+                                st.success("Đã tải JSON và đồng bộ GitHub!")
                         except:
                             st.error("Lỗi đọc file JSON")
 
@@ -230,12 +293,11 @@ with col_btn:
                         }
                         db_data.append(new_entry)
                         save_database(db_data)
-                        st.success(f"Đã tạo và lưu vĩnh viễn: {ten_muc.strip()}")
+                        st.success(f"Đã tạo và đồng bộ GitHub: {ten_muc.strip()}")
                     elif other_files:
                         st.warning("Vui lòng nhập tên mục trước khi tải lên.")
                     st.rerun()
 
-        # Phần Bot Cào Dữ Liệu Tự Động Đa Nguồn
         st.markdown("---")
         st.markdown("**🤖 Bot Cào Dữ Liệu Tự Động**")
         with st.form("scraper_form"):
@@ -246,7 +308,7 @@ with col_btn:
                     bot = MultiSourceScraperBot()
                     with st.spinner("Bot đang đi cào dữ liệu từ các nguồn..."):
                         count = bot.run_multi_source_crawl(url_list)
-                    st.success(f"Đã cào thành công và lưu vĩnh viễn {count} mục mới!")
+                    st.success(f"Đã cào thành công và đồng bộ vĩnh viễn {count} mục!")
                     st.rerun()
                 else:
                     st.warning("Vui lòng nhập ít nhất một URL hợp lệ.")
@@ -264,7 +326,6 @@ if current_articles:
         source = art.get('source', 'Không rõ')
         updated = art.get('updated', '')
         
-        # Mở mục ra để xem trực tiếp bằng expander, hiển thị rõ nguồn dữ liệu
         with st.expander(f"📖 {title} — [Nguồn: {source}] (Cập nhật: {updated})"):
             if art.get("type") == "multi_media":
                 for f in art.get("files_list", []):
@@ -273,7 +334,6 @@ if current_articles:
             else:
                 st.write(art.get("content", ""))
 
-            # Form chỉnh sửa trực tiếp bên trong mục
             if art.get("type") != "multi_media":
                 st.markdown("---")
                 st.subheader("Chỉnh sửa nội dung mục này")
@@ -285,7 +345,7 @@ if current_articles:
                         art["content"] = new_content
                         art["updated"] = datetime.now().strftime("%Y-%m-%d")
                         save_database(current_articles)
-                        st.success("Đã lưu thay đổi vĩnh viễn vào ổ đĩa!")
+                        st.success("Đã lưu và đồng bộ thay đổi lên GitHub!")
                         st.rerun()
 else:
     st.info("Kho tri thức hiện đang trống. Hãy nhấn vào biểu tượng menu (☰) ở góc trên bên phải để tải tệp lên hoặc sử dụng Bot Cào dữ liệu.")
