@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """
-app.py — Wiki AI & Data + Multi-Source Scraper + GitHub JSON Persistent Backend
-Hệ thống kho tri thức lưu trữ vĩnh viễn trên GitHub Cloud, chống mọi lỗi kết nối mạng.
+app.py — Wiki AI & Data + Advanced Scraper + GitHub JSON Persistent Backend
+Hệ thống kho tri thức lưu trữ vĩnh viễn trên GitHub Cloud với bot cào dữ liệu tối ưu.
 """
 
 import streamlit as st
@@ -42,7 +42,7 @@ st.markdown("""
 # ==========================================
 # 2. KẾT NỐI GITHUB CLOUD & QUẢN LÝ DỮ LIỆU
 # ==========================================
-GITHUB_REPO = st.secrets.get("GITHUB_REPO", "urgayhaha/chatbot")  # Repo của sếp
+GITHUB_REPO = st.secrets.get("GITHUB_REPO", "urgayhaha/chatbot")
 GITHUB_TOKEN = st.secrets.get("GITHUB_TOKEN", "")
 JSON_FILE_PATH = "wiki_database.json"
 
@@ -71,11 +71,9 @@ def save_database(articles):
     }
     
     try:
-        # Lấy sha hiện tại của file (nếu có)
         r = requests.get(url, headers=headers)
         sha = r.json().get("sha") if r.status_code == 200 else None
         
-        # Chuẩn bị nội dung mã hóa base64
         content_str = json.dumps(articles, ensure_ascii=False, indent=4)
         content_b64 = base64.b64encode(content_str.encode("utf-8")).decode("utf-8")
         
@@ -129,12 +127,15 @@ def agi_add_article(title, content, source="AGI Agent"):
     return new_art["id"]
 
 # ==========================================
-# 4. BOT CÀO DỮ LIỆU TỪ NHIỀU NGUỒN (MULTI-SOURCE SCRAPER)
+# 4. BOT CÀO DỮ LIỆU NÂNG CẤP (ADVANCED SCRAPER BOT)
 # ==========================================
-class MultiSourceScraperBot:
+class AdvancedScraperBot:
     def __init__(self):
         self.headers = {
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/115.0.0.0 Safari/537.36"
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.5",
+            "Referer": "https://www.google.com/"
         }
 
     def scrape_web_page(self, url):
@@ -142,9 +143,14 @@ class MultiSourceScraperBot:
             parsed_url = urlparse(url)
             domain_source = parsed_url.netloc if parsed_url.netloc else "Web ngoài"
 
-            response = requests.get(url, headers=self.headers, timeout=10)
+            response = requests.get(url, headers=self.headers, timeout=12)
             if response.status_code == 200:
                 soup = BeautifulSoup(response.text, "html.parser")
+                
+                # Xóa các thẻ rác thường thấy để nội dung sạch hơn
+                for script in soup(["script", "style", "nav", "footer", "header"]):
+                    script.extract()
+
                 title_tag = soup.find("h1") or soup.find("title")
                 title = title_tag.get_text(strip=True) if title_tag else "Bài viết không tiêu đề"
                 
@@ -152,7 +158,7 @@ class MultiSourceScraperBot:
                 content = "\n\n".join([p.get_text(strip=True) for p in paragraphs if len(p.get_text(strip=True)) > 20])
                 
                 if not content:
-                    content = "Không thể trích xuất nội dung chi tiết từ trang này."
+                    content = soup.get_text(separator="\n", strip=True)[:3000] # Fallback lấy text thô nếu không tìm thấy thẻ p
 
                 return {
                     "title": title[:150],
@@ -160,13 +166,16 @@ class MultiSourceScraperBot:
                     "source": domain_source,
                     "source_url": url
                 }
+            else:
+                return {"error": f"Trang web từ chối truy cập (Mã lỗi HTTP: {response.status_code})"}
         except Exception as e:
-            print(f"Lỗi cào dữ liệu từ {url}: {e}")
+            return {"error": str(e)}
         return None
 
     def run_multi_source_crawl(self, url_list):
         db = load_database()
         added_count = 0
+        error_logs = []
 
         for url in url_list:
             url = url.strip()
@@ -174,27 +183,31 @@ class MultiSourceScraperBot:
                 continue
             
             if any(item.get("source_url") == url for item in db):
+                error_logs.append(f"URL đã tồn tại trong kho: {url}")
                 continue
 
-            scraped_data = self.scrape_web_page(url)
-            if scraped_data:
+            result = self.scrape_web_page(url)
+            if result and "error" not in result:
                 new_entry = {
-                    "id": make_id(scraped_data["title"]),
-                    "title": scraped_data["title"],
-                    "content": scraped_data["content"],
-                    "source": scraped_data["source"],
-                    "source_url": scraped_data["source_url"],
+                    "id": make_id(result["title"]),
+                    "title": result["title"],
+                    "content": result["content"],
+                    "source": result["source"],
+                    "source_url": result["source_url"],
                     "updated": datetime.now().strftime("%Y-%m-%d"),
                     "type": "text",
                     "files_list": []
                 }
                 db.append(new_entry)
                 added_count += 1
+            else:
+                err_msg = result.get("error", "Lỗi không xác định") if result else "Không phản hồi"
+                error_logs.append(f"Không thể cào từ {url} ({err_msg})")
 
         if added_count > 0:
             save_database(db)
 
-        return added_count
+        return added_count, error_logs
 
 # ==========================================
 # 5. GIAO DIỆN WEB STREAMLIT
@@ -265,11 +278,17 @@ with col_btn:
             if st.form_submit_button("Chạy Bot Cào & Lưu"):
                 if urls_input.strip():
                     url_list = urls_input.split("\n")
-                    bot = MultiSourceScraperBot()
+                    bot = AdvancedScraperBot()
                     with st.spinner("Bot đang đi cào dữ liệu từ các nguồn..."):
-                        count = bot.run_multi_source_crawl(url_list)
-                    st.success(f"Đã cào thành công và đồng bộ vĩnh viễn {count} mục lên GitHub Cloud!")
-                    st.rerun()
+                        count, logs = bot.run_multi_source_crawl(url_list)
+                    
+                    if count > 0:
+                        st.success(f"Đã cào thành công và lưu vĩnh viễn {count} mục lên GitHub Cloud!")
+                    if logs:
+                        for log in logs:
+                            st.warning(log)
+                    if count > 0 or logs:
+                        st.rerun()
                 else:
                     st.warning("Vui lòng nhập ít nhất một URL hợp lệ.")
 
@@ -304,7 +323,6 @@ if current_articles:
                         art["title"] = new_title
                         art["content"] = new_content
                         art["updated"] = datetime.now().strftime("%Y-%m-%d")
-                        # Cập nhật trong list
                         for i, item in enumerate(current_articles):
                             if item.get("id") == art.get("id"):
                                 current_articles[i] = art
