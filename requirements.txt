@@ -7,3 +7,4 @@ sympy
 streamlit
 requests
 beautifulsoup4
+supabase
