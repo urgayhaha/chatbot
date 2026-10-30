@@ -1,5 +1,4 @@
 ```python
-# file: snake_streamlit_fixed.py
 import streamlit as st
 import random
 import matplotlib.pyplot as plt
@@ -113,8 +112,7 @@ if st.session_state.game_over:
     st.error(f"💀 Game Over!  Điểm: {st.session_state.score}")
     if st.button("Chơi lại"):
         init_game()
-        # Dòng đã sửa: dùng st.rerun() (API mới)
-        st.rerun()
+        st.rerun()          # dùng API mới, không còn experimental
 else:
     if not st.session_state.playing:
         if st.button("Start"):
