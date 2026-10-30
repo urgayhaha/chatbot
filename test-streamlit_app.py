@@ -1,260 +1,153 @@
-# -*- coding: utf-8 -*-
-"""
-Nova Agent — Streamlit + Groq / Gemini (chạy trên Streamlit Cloud)
-
-Secrets (Streamlit Cloud → Settings → Secrets):
-GROQ_API_KEY = "gsk_..."
-GEMINI_API_KEY = "AIza..."   # tùy chọn
-
-Hoặc nhập key tạm trong sidebar.
-"""
-import json
-import os
-import re
-import urllib.parse
-import urllib.request
-from datetime import datetime
-
+```python
+# file: snake_streamlit_fixed_v2.py
 import streamlit as st
+import random
+import matplotlib.pyplot as plt
+import numpy as np
+from streamlit_autorefresh import st_autorefresh   # pip install streamlit-autorefresh
 
-MEMORY_FILE = "memory.json"
-MAX_HISTORY = 6
+# ------------------- Cấu hình -------------------
+WIDTH, HEIGHT = 20, 20          # số ô (cột x hàng)
+FPS = 8                         # khung/giây
+# -------------------------------------------------
 
-
-class Memory:
-    def __init__(self, path=MEMORY_FILE):
-        self.path = path
-        self.items = []
-        self.goals = []
-        self.load()
-
-    def load(self):
-        if os.path.exists(self.path):
-            try:
-                with open(self.path, encoding="utf-8") as f:
-                    data = json.load(f)
-                self.items = data.get("items", [])
-                self.goals = data.get("goals", [])
-            except Exception:
-                pass
-
-    def save(self):
-        try:
-            with open(self.path, "w", encoding="utf-8") as f:
-                json.dump({"items": self.items, "goals": self.goals}, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
-
-    def add_item(self, topic, content, source="chat"):
-        content = str(content).strip()
-        if len(content) < 8:
-            return False
-        preview = content[:40].lower()
-        for it in self.items[-30:]:
-            if preview in it.get("content", "").lower():
-                return False
-        self.items.append({
-            "topic": topic[:60],
-            "content": content[:500],
-            "source": source,
-            "time": datetime.now().strftime("%Y-%m-%d %H:%M")
-        })
-        self.save()
-        return True
-
-    def add_goal(self, name):
-        name = name.strip().lower()
-        if name and not any(g["name"] == name for g in self.goals):
-            self.goals.append({"name": name, "done": 0, "finished": False})
-            self.save()
-
-    def recall(self, keyword, limit=3):
-        kw = keyword.strip().lower()
-        if not kw:
-            return []
-        return [it for it in reversed(self.items)
-                if kw in it.get("content", "").lower() or kw in it.get("topic", "").lower()][:limit]
-
-
-def get_secret(name):
-    try:
-        return st.secrets.get(name, "")
-    except Exception:
-        return ""
-
-
-def search_duckduckgo(query):
-    try:
-        url = "https://api.duckduckgo.com/?" + urllib.parse.urlencode({
-            "q": query, "format": "json", "no_html": "1", "skip_disambig": "1"
-        })
-        req = urllib.request.Request(url, headers={"User-Agent": "NovaAgent/1.0"})
-        with urllib.request.urlopen(req, timeout=8) as r:
-            data = json.loads(r.read().decode("utf-8"))
-        abstract = data.get("AbstractText") or data.get("Abstract") or ""
-        if len(abstract) > 40:
-            return data.get("Heading") or query, abstract[:500], "duckduckgo"
-        topics = data.get("RelatedTopics") or []
-        texts = [t["Text"][:150] for t in topics[:3] if isinstance(t, dict) and t.get("Text")]
-        if texts:
-            return query, " | ".join(texts), "duckduckgo"
-    except Exception:
-        pass
-    return None, None, None
-
-
-def search_wiki(query):
-    for lang in ("vi", "en"):
-        try:
-            url = f"https://{lang}.wikipedia.org/api/rest_v1/page/summary/{urllib.parse.quote(query.replace(' ', '_'))}"
-            req = urllib.request.Request(url, headers={"User-Agent": "NovaAgent/1.0"})
-            with urllib.request.urlopen(req, timeout=8) as r:
-                data = json.loads(r.read().decode("utf-8"))
-            extract = data.get("extract", "")
-            if len(extract) > 30:
-                return data.get("title", query), extract[:400], f"wiki-{lang}"
-        except Exception:
-            continue
-    return None, None, None
-
-
-def call_groq(prompt, api_key):
-    if not api_key:
-        return "(Chưa có Groq API key)"
-    try:
-        import requests
-        resp = requests.post(
-            "https://api.groq.com/openai/v1/chat/completions",
-            headers={"Authorization": f"Bearer {api_key}", "Content-Type": "application/json"},
-            json={
-                "model": "llama-3.3-70b-versatile",
-                "messages": [{"role": "user", "content": prompt}],
-                "temperature": 0.6,
-                "max_tokens": 800
-            },
-            timeout=30
-        )
-        if resp.status_code == 200:
-            return resp.json()["choices"][0]["message"]["content"].strip()
-        return f"(Groq lỗi {resp.status_code})"
-    except Exception as e:
-        return f"(Lỗi Groq: {e})"
-
-
-def call_gemini(prompt, api_key):
-    if not api_key:
-        return "(Chưa có Gemini API key)"
-    try:
-        import requests
-        url = f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key={api_key}"
-        resp = requests.post(
-            url,
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=30
-        )
-        if resp.status_code == 200:
-            return resp.json()["candidates"][0]["content"]["parts"][0]["text"].strip()
-        return f"(Gemini lỗi {resp.status_code})"
-    except Exception as e:
-        return f"(Lỗi Gemini: {e})"
-
-
-def call_llm(prompt, provider, groq_key, gemini_key):
-    if provider == "Groq":
-        return call_groq(prompt, groq_key)
-    return call_gemini(prompt, gemini_key)
-
-
-def process_input(text, memory, history, provider, groq_key, gemini_key):
-    text = text.strip()
-    if not text:
-        return ""
-    lower = text.lower()
-
-    if lower.startswith("nhớ ") or lower.startswith("lưu "):
-        fact = text.split(" ", 1)[1]
-        return "Đã lưu." if memory.add_item("user", fact) else "Không lưu được."
-
-    if lower.startswith("mục tiêu ") or lower.startswith("goal "):
-        g = text.split(" ", 1)[1]
-        memory.add_goal(g)
-        return f"Đã thêm mục tiêu: {g}"
-
-    if lower.startswith("tìm ") or "wiki" in lower or "duck" in lower:
-        q = re.sub(r"(tìm|wikipedia|wiki|duckduckgo|duck)", "", lower).strip() or text
-        title, content, src = search_duckduckgo(q)
-        if not content:
-            title, content, src = search_wiki(q)
-        if content:
-            memory.add_item(q, content, src or "search")
-            return f"[{src}] {title}:\n{content}"
-        return "Không tìm thấy trên DuckDuckGo hoặc Wikipedia."
-
-    recalled = memory.recall(text)
-    mem_ctx = ""
-    if recalled:
-        mem_ctx = "\nĐã biết:\n" + "\n".join(f"- {r['content'][:100]}" for r in recalled)
-
-    hist = "\n".join(f"{h['role']}: {h['text'][:80]}" for h in history[-MAX_HISTORY:])
-    prompt = (
-        "Bạn là Nova, trợ lý AI tiếng Việt. Trả lời ngắn, rõ, không bịa.\n"
-        f"{mem_ctx}\nLịch sử:\n{hist}\nNgười dùng: {text}\nNova:"
+# ---------- Khởi tạo trạng thái ----------
+def init_game():
+    st.session_state.snake = [(WIDTH // 2, HEIGHT // 2)]
+    st.session_state.direction = "RIGHT"
+    st.session_state.food = (
+        random.randint(0, WIDTH - 1),
+        random.randint(0, HEIGHT - 1),
     )
-    return call_llm(prompt, provider, groq_key, gemini_key)
+    st.session_state.score = 0
+    st.session_state.game_over = False
+    st.session_state.playing = False   # False → chưa bắt đầu
 
+if "snake" not in st.session_state:
+    init_game()
+# ---------------------------------------------------------
 
-# ==================== UI ====================
-st.set_page_config(page_title="Nova Agent", page_icon="🤖", layout="wide")
-st.title("Nova Agent")
+# ---------- Di chuyển rắn ----------
+def move_snake():
+    head_x, head_y = st.session_state.snake[-1]
 
-if "memory" not in st.session_state:
-    st.session_state.memory = Memory()
-if "history" not in st.session_state:
-    st.session_state.history = []
-if "messages" not in st.session_state:
-    st.session_state.messages = []
+    if st.session_state.direction == "UP":
+        head_y -= 1
+    elif st.session_state.direction == "DOWN":
+        head_y += 1
+    elif st.session_state.direction == "LEFT":
+        head_x -= 1
+    elif st.session_state.direction == "RIGHT":
+        head_x += 1
 
-with st.sidebar:
-    st.header("Cài đặt")
-    provider = st.radio("LLM", ["Groq", "Gemini"], index=0)
-    groq_key = st.text_input("Groq API Key", value=get_secret("GROQ_API_KEY"), type="password")
-    gemini_key = st.text_input("Gemini API Key", value=get_secret("GEMINI_API_KEY"), type="password")
-    st.caption("Key lấy miễn phí tại console.groq.com hoặc aistudio.google.com")
-    st.divider()
-    st.caption(f"Bộ nhớ: {len(st.session_state.memory.items)} mục")
+    new_head = (head_x % WIDTH, head_y % HEIGHT)
 
-with st.expander("Hướng dẫn"):
-    st.markdown("""
-- Hỏi bình thường để trò chuyện
-- `nhớ ...` để lưu fact
-- `mục tiêu ...` để thêm mục tiêu
-- `tìm ...` để tìm DuckDuckGo rồi Wikipedia
-- Nhập API key ở sidebar hoặc đặt trong Secrets
-    """)
+    # Va chạm thân → Game Over
+    if new_head in st.session_state.snake:
+        st.session_state.game_over = True
+        st.session_state.playing = False
+        return
 
-for msg in st.session_state.messages:
-    with st.chat_message(msg["role"]):
-        st.markdown(msg["content"])
+    st.session_state.snake.append(new_head)
 
-if prompt := st.chat_input("Nhập câu hỏi hoặc lệnh..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
-    with st.chat_message("user"):
-        st.markdown(prompt)
-
-    with st.chat_message("assistant"):
-        with st.spinner("Đang xử lý..."):
-            answer = process_input(
-                prompt,
-                st.session_state.memory,
-                st.session_state.history,
-                provider,
-                groq_key,
-                gemini_key
+    # Ăn thức ăn?
+    if new_head == st.session_state.food:
+        st.session_state.score += 1
+        # sinh thức ăn mới ở vị trí không trùng rắn
+        while True:
+            new_food = (
+                random.randint(0, WIDTH - 1),
+                random.randint(0, HEIGHT - 1),
             )
-        st.markdown(answer)
-    st.session_state.messages.append({"role": "assistant", "content": answer})
-    st.session_state.history.append({"role": "user", "text": prompt})
-    st.session_state.history.append({"role": "ai", "text": answer})
-    if len(st.session_state.history) > 12:
-        st.session_state.history = st.session_state.history[-12:]
-    st.rerun()
+            if new_food not in st.session_state.snake:
+                st.session_state.food = new_food
+                break
+    else:
+        # không ăn → bỏ đuôi
+        st.session_state.snake.pop(0)
+# ---------------------------------------------------------
+
+# ---------- Vẽ màn hình ----------
+def draw():
+    grid = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+
+    # Rắn – màu xanh lá
+    for x, y in st.session_state.snake:
+        grid[y, x] = (0, 255, 0)
+
+    # Thức ăn – màu đỏ
+    fx, fy = st.session_state.food
+    grid[fy, fx] = (255, 0, 0)
+
+    fig, ax = plt.subplots(figsize=(WIDTH, HEIGHT))
+    ax.imshow(grid, interpolation="none")
+    ax.set_xticks([])
+    ax.set_yticks([])
+    ax.set_title(f"Score: {st.session_state.score}", fontsize=14)
+    st.pyplot(fig)
+# ---------------------------------------------------------
+
+# ---------- Điều khiển hướng ----------
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    if st.button("↑"):
+        if st.session_state.direction != "DOWN":
+            st.session_state.direction = "UP"
+    if st.button("←"):
+        if st.session_state.direction != "RIGHT":
+            st.session_state.direction = "LEFT"
+    if st.button("→"):
+        if st.session_state.direction != "LEFT":
+            st.session_state.direction = "RIGHT"
+    if st.button("↓"):
+        if st.session_state.direction != "UP":
+            st.session_state.direction = "DOWN"
+
+# ---------- Nút Start / Restart ----------
+if st.session_state.game_over:
+    st.error(f"💀 Game Over!  Điểm: {st.session_state.score}")
+    if st.button("Chơi lại"):
+        init_game()
+        # <-- Dòng đã sửa: dùng st.rerun() thay vì st.experimental_rerun()
+        st.rerun()
+else:
+    if not st.session_state.playing:
+        if st.button("Start"):
+            st.session_state.playing = True
+    else:
+        if st.button("Pause"):
+            st.session_state.playing = False
+# ---------------------------------------------------------
+
+# ---------- Vòng game (tự refresh) ----------
+if st.session_state.playing and not st.session_state.game_over:
+    move_snake()                                   # một bước mỗi lần rerun
+    st_autorefresh(interval=1000 // FPS,          # tự reload sau 1/FPS giây
+                   limit=None,
+                   key="game_loop")
+# ---------------------------------------------------------
+
+# ---------- Vẽ cuối cùng ----------
+draw()
+```
+
+#### Những điểm quan trọng sau khi sửa
+
+| Thay đổi | Tác dụng |
+|----------|----------|
+| `st.experimental_rerun()` → `st.rerun()` | Dùng API hiện hành, không còn cảnh báo *deprecation* và tránh lỗi `AttributeError`. |
+| Giữ lại `st_autorefresh` | Vẫn cung cấp vòng lặp “frame” nhẹ, nhưng giờ mọi widget (các nút mũi tên, Start/Pause) hoạt động bình thường. |
+| Các biến trạng thái (`playing`, `game_over`) vẫn được quản lý trong `st.session_state` | Đảm bảo trạng thái được duy trì qua các lần rerun. |
+
+---
+
+## 🚀 Cách chạy nhanh
+
+```bash
+pip install streamlit matplotlib numpy streamlit-autorefresh
+streamlit run snake_streamlit_fixed_v2.py
+```
+
+Mở trình duyệt, nhấn **Start**, dùng các nút mũi tên để điều khiển rắn. Khi rắn tự cắt mình → hiện “Game Over” và nút **Chơi lại** sẽ khởi động lại trò chơi mà không gặp lỗi nữa.  
+
+**Chúc bạn chơi vui!** 🎮
