@@ -1,5 +1,5 @@
 ```python
-# file: snake_streamlit_fixed_v2.py
+# file: snake_streamlit_fixed.py
 import streamlit as st
 import random
 import matplotlib.pyplot as plt
@@ -13,7 +13,8 @@ FPS = 8                         # khung/giây
 
 # ---------- Khởi tạo trạng thái ----------
 def init_game():
-    st.session_state.snake = [(WIDTH // 2, HEIGHT // 2)]
+    """Thiết lập lại toàn bộ trạng thái của trò chơi."""
+    st.session_state.snake = [(WIDTH // 2, HEIGHT // 2)]   # đầu rắn ở cuối list
     st.session_state.direction = "RIGHT"
     st.session_state.food = (
         random.randint(0, WIDTH - 1),
@@ -23,12 +24,14 @@ def init_game():
     st.session_state.game_over = False
     st.session_state.playing = False   # False → chưa bắt đầu
 
+# Nếu chưa có trạng thái nào, khởi tạo lần đầu
 if "snake" not in st.session_state:
     init_game()
 # ---------------------------------------------------------
 
 # ---------- Di chuyển rắn ----------
 def move_snake():
+    """Thực hiện một bước di chuyển dựa trên hướng hiện tại."""
     head_x, head_y = st.session_state.snake[-1]
 
     if st.session_state.direction == "UP":
@@ -40,6 +43,7 @@ def move_snake():
     elif st.session_state.direction == "RIGHT":
         head_x += 1
 
+    # Vòng quanh biên (torus)
     new_head = (head_x % WIDTH, head_y % HEIGHT)
 
     # Va chạm thân → Game Over
@@ -50,10 +54,10 @@ def move_snake():
 
     st.session_state.snake.append(new_head)
 
-    # Ăn thức ăn?
+    # Kiểm tra ăn thức ăn
     if new_head == st.session_state.food:
         st.session_state.score += 1
-        # sinh thức ăn mới ở vị trí không trùng rắn
+        # Sinh thức ăn mới ở vị trí không trùng rắn
         while True:
             new_food = (
                 random.randint(0, WIDTH - 1),
@@ -63,12 +67,13 @@ def move_snake():
                 st.session_state.food = new_food
                 break
     else:
-        # không ăn → bỏ đuôi
+        # Không ăn → bỏ đuôi
         st.session_state.snake.pop(0)
 # ---------------------------------------------------------
 
 # ---------- Vẽ màn hình ----------
 def draw():
+    """Vẽ lưới, rắn và thức ăn bằng matplotlib."""
     grid = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
 
     # Rắn – màu xanh lá
@@ -108,7 +113,7 @@ if st.session_state.game_over:
     st.error(f"💀 Game Over!  Điểm: {st.session_state.score}")
     if st.button("Chơi lại"):
         init_game()
-        # <-- Dòng đã sửa: dùng st.rerun() thay vì st.experimental_rerun()
+        # Dòng đã sửa: dùng st.rerun() (API mới)
         st.rerun()
 else:
     if not st.session_state.playing:
@@ -122,32 +127,42 @@ else:
 # ---------- Vòng game (tự refresh) ----------
 if st.session_state.playing and not st.session_state.game_over:
     move_snake()                                   # một bước mỗi lần rerun
-    st_autorefresh(interval=1000 // FPS,          # tự reload sau 1/FPS giây
-                   limit=None,
-                   key="game_loop")
+    st_autorefresh(
+        interval=1000 // FPS,                     # tự reload sau 1/FPS giây
+        limit=None,
+        key="game_loop"
+    )
 # ---------------------------------------------------------
 
 # ---------- Vẽ cuối cùng ----------
 draw()
 ```
 
-#### Những điểm quan trọng sau khi sửa
+### 📦 Hướng dẫn chạy nhanh
 
-| Thay đổi | Tác dụng |
-|----------|----------|
-| `st.experimental_rerun()` → `st.rerun()` | Dùng API hiện hành, không còn cảnh báo *deprecation* và tránh lỗi `AttributeError`. |
-| Giữ lại `st_autorefresh` | Vẫn cung cấp vòng lặp “frame” nhẹ, nhưng giờ mọi widget (các nút mũi tên, Start/Pause) hoạt động bình thường. |
-| Các biến trạng thái (`playing`, `game_over`) vẫn được quản lý trong `st.session_state` | Đảm bảo trạng thái được duy trì qua các lần rerun. |
+```bash
+# 1. Cài các thư viện cần thiết
+pip install streamlit matplotlib numpy streamlit-autorefresh
+
+# 2. Lưu file trên thành snake_streamlit_fixed.py
+# 3. Chạy ứng dụng
+streamlit run snake_streamlit_fixed.py
+```
+
+- **Start** → bắt đầu vòng game.  
+- **Pause** → tạm dừng (các nút mũi tên vẫn có thể thay đổi hướng).  
+- Khi rắn tự cắt mình → hiện “Game Over” và nút **Chơi lại** sẽ khởi động lại trò chơi.
 
 ---
 
-## 🚀 Cách chạy nhanh
+### 🔍 Tóm tắt nguyên nhân lỗi cũ
 
-```bash
-pip install streamlit matplotlib numpy streamlit-autorefresh
-streamlit run snake_streamlit_fixed_v2.py
-```
+| Dòng cũ | Vấn đề |
+|---------|--------|
+| `st.experimental_rerun()` | Đánh dấu **deprecated** từ Streamlit 1.30; trong một số môi trường mới không còn tồn tại, gây `AttributeError`. |
+| Các ký tự `→`, `←`, `↑`, `↓` trong comment | Khi copy‑paste trực tiếp vào file *.py* chúng trở thành ký tự không hợp lệ, sinh `SyntaxError`. |
 
-Mở trình duyệt, nhấn **Start**, dùng các nút mũi tên để điều khiển rắn. Khi rắn tự cắt mình → hiện “Game Over” và nút **Chơi lại** sẽ khởi động lại trò chơi mà không gặp lỗi nữa.  
+Bằng cách **thay `st.experimental_rerun()` bằng `st.rerun()`** và **loại bỏ ký tự đặc biệt** trong mã nguồn, app sẽ chạy mượt mà trên mọi phiên bản Streamlit hiện tại.  
 
-**Chúc bạn chơi vui!** 🎮
+Chúc bạn có những giây phút giải trí thú vị! 🎉
+
