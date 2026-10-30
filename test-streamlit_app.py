@@ -1,5 +1,5 @@
 ```python
-# snake_streamlit_fixed.py
+# file: snake_streamlit_fixed.py
 import streamlit as st
 import random
 import matplotlib.pyplot as plt
