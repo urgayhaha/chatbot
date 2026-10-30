@@ -1,5 +1,5 @@
 ```python
-# file: snake_streamlit_fixed.py
+# snake_streamlit_fixed.py
 import streamlit as st
 import random
 import matplotlib.pyplot as plt
@@ -137,32 +137,3 @@ if st.session_state.playing and not st.session_state.game_over:
 # ---------- Vẽ cuối cùng ----------
 draw()
 ```
-
-### 📦 Hướng dẫn chạy nhanh
-
-```bash
-# 1. Cài các thư viện cần thiết
-pip install streamlit matplotlib numpy streamlit-autorefresh
-
-# 2. Lưu file trên thành snake_streamlit_fixed.py
-# 3. Chạy ứng dụng
-streamlit run snake_streamlit_fixed.py
-```
-
-- **Start** → bắt đầu vòng game.  
-- **Pause** → tạm dừng (các nút mũi tên vẫn có thể thay đổi hướng).  
-- Khi rắn tự cắt mình → hiện “Game Over” và nút **Chơi lại** sẽ khởi động lại trò chơi.
-
----
-
-### 🔍 Tóm tắt nguyên nhân lỗi cũ
-
-| Dòng cũ | Vấn đề |
-|---------|--------|
-| `st.experimental_rerun()` | Đánh dấu **deprecated** từ Streamlit 1.30; trong một số môi trường mới không còn tồn tại, gây `AttributeError`. |
-| Các ký tự `→`, `←`, `↑`, `↓` trong comment | Khi copy‑paste trực tiếp vào file *.py* chúng trở thành ký tự không hợp lệ, sinh `SyntaxError`. |
-
-Bằng cách **thay `st.experimental_rerun()` bằng `st.rerun()`** và **loại bỏ ký tự đặc biệt** trong mã nguồn, app sẽ chạy mượt mà trên mọi phiên bản Streamlit hiện tại.  
-
-Chúc bạn có những giây phút giải trí thú vị! 🎉
-
