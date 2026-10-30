@@ -134,4 +134,3 @@ if st.session_state.playing and not st.session_state.game_over:
 
 # ---------- Vẽ cuối cùng ----------
 draw()
-```
